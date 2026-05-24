@@ -1,0 +1,44 @@
+// Prisma schema file for Amen-A Textbook Order System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 에이멘에이(주) 교재구매 및 회원가입 신청 정보 테이블
+model Application {
+  id                 Int      @id @default(autoincrement())
+  buyerName          String   @map("buyer_name")          // 구매자 성명
+  childInfo          String?  @map("child_info")          // 자녀 성명 및 연령
+  phoneNumber        String   @map("phone_number")        // 연락처
+  address            String   @map("address")             // 배송지 주소
+  deliveryMemo       String?  @map("delivery_memo")       // 배송 메모
+  
+  book1Name          String?  @map("book_1_name")         // 교재구입 교재명 1
+  book1Price         String?  @map("book_1_price")        // 교재 1 금액
+  book2Name          String?  @map("book_2_name")         // 교재구입 교재명 2
+  book2Price         String?  @map("book_2_price")        // 교재 2 금액
+  subscriptionType   String?  @map("subscription_type")   // 구독회원 상품구분
+  subscriptionPrice  String?  @map("subscription_price")  // 구독 상품 금액
+  
+  cashPayment        String?  @map("cash_payment")        // 현금 결제액
+  cardPayment        String?  @map("card_payment")        // 카드 결제액
+  cashReceiptNo      String?  @map("cash_receipt_no")      // 현금영수증 증빙번호
+  
+  sellerName         String?  @map("seller_name")         // 판매자 소속 및 성명
+  sellerPhone        String?  @map("seller_phone")        // 판매자 연락처
+  
+  gdrivePhotoFileId  String?  @map("gdrive_photo_file_id") // 구글드라이브 원본 사진 ID
+  gdrivePdfFileId    String?  @map("gdrive_pdf_file_id")   // 구글드라이브 완성 PDF ID
+  gdriveReceiptFileId String? @map("gdrive_receipt_file_id") // 구글드라이브 카드 영수증 ID
+  receiptOcrData     Json?    @map("receipt_ocr_data")    // OCR 추출 raw 정보 ({ card: {...}, cash: {...} })
+  privacyConsent     Boolean  @default(true) @map("privacy_consent") // 개인정보 수집 동의 여부 (Y/N)
+  applyDate          String   @map("apply_date")          // 신청 일자 (YYYY-MM-DD)
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@map("applications")
+}

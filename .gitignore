@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies / build
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# === 시크릿 (절대 커밋 금지) ===
+.env
+.env.*
+!.env.example
+server/.env
+server/config/google-key.json
+server/config/*.json
+client_secret_*.json
+**/client_secret*.json
+*-key.json
+*.pem
+
+# 업로드된 실데이터 (개인정보 포함)
+server/uploads/
+
+# Prisma 자동 생성물
+server/node_modules/.prisma
