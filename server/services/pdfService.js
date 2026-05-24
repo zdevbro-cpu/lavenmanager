@@ -176,6 +176,13 @@ const pdfService = {
     text('※ 카드 영수증 필수 첨부', MR - 4, y, { align: 'right', size: 7.5, color: rgb(0.7, 0.2, 0.2) });
     y -= ROW + 6;
 
+    // ── 균형 잡기 — 동의서~서명~회사정보 블록을 카드결제정보 박스 아래 남은 공간 중앙에 배치 ──
+    const SECTION_6_7_HEIGHT = 173; // 동의서 + 신청일자 + 서명박스 + 회사정보 합산 높이 (대략)
+    const BOTTOM_MARGIN = 14;
+    const remainingSpace = y - BOTTOM_MARGIN;
+    const extraTopGap = Math.max(0, (remainingSpace - SECTION_6_7_HEIGHT) / 2);
+    y -= extraTopGap;
+
     // ─── 6. 개인정보 동의서 (이하 전부 중앙정렬) ──────────────────────
     const CX = W / 2;
     text('개인 정보 수집·이용 동의서', CX, y, { size: 8.5, align: 'center' });
@@ -245,9 +252,10 @@ const pdfService = {
     return Buffer.from(pdfBytes);
   },
 
-  // 단일 A4 가로 페이지: 좌측 = 신청서 (A5 그대로 임베드), 우측 = 영수증 2x2 그리드 (이미지 90° CW 회전)
-  // photoBuffer(원본 신청서 사진)는 현재 합성 레이아웃에서 사용 안 함 (서명·OCR 처리 후 폐기)
-  buildBundledPdf: async (applicationPdfBuffer, _photoBuffer = null, cardReceiptBuffers = null, cashReceiptBuffer = null) => {
+  // 단일 A4 가로 페이지: 좌측 = 신청서 (A5 그대로 임베드), 우측 = 2x2 그리드 (이미지 90° CW 회전)
+  // 2x2 슬롯 우선순위: 수기신청서 있으면 [TL=수기, TR=카드1, BL=카드2, BR=카드3 또는 현금]
+  //                  없으면 [TL=카드1, TR=카드2, BL=카드3, BR=현금]
+  buildBundledPdf: async (applicationPdfBuffer, photoBuffer = null, cardReceiptBuffers = null, cashReceiptBuffer = null) => {
     const finalDoc = await PDFDocument.create();
     finalDoc.registerFontkit(fontkit);
     const titleFont = await loadKoreanFont(finalDoc);
@@ -271,14 +279,28 @@ const pdfService = {
       color: rgb(0.7, 0.7, 0.75)
     });
 
-    // ── 우측: 영수증 4슬롯 (카드 #1·#2·#3 + 현금) 2x2 ──
+    // ── 우측: 4슬롯 2x2 — 수기신청서 유무에 따라 우선순위 분기 ──
     const cardArr = Array.isArray(cardReceiptBuffers) ? cardReceiptBuffers.filter(Boolean) : [];
-    const slots = [
-      { label: '카드 영수증 #1', buf: cardArr[0] || null },
-      { label: '카드 영수증 #2', buf: cardArr[1] || null },
-      { label: '카드 영수증 #3', buf: cardArr[2] || null },
-      { label: '현금 영수증',    buf: cashReceiptBuffer || null }
-    ];
+    let slots;
+    if (photoBuffer) {
+      // 수기신청서 있음: [TL=수기, TR=카드1, BL=카드2, BR=카드3 또는 현금]
+      const brBuf = cardArr[2] || cashReceiptBuffer || null;
+      const brLabel = cardArr[2] ? '카드 영수증 #3' : '현금 영수증';
+      slots = [
+        { label: '수기 신청서',    buf: photoBuffer },
+        { label: '카드 영수증 #1', buf: cardArr[0] || null },
+        { label: '카드 영수증 #2', buf: cardArr[1] || null },
+        { label: brLabel,          buf: brBuf }
+      ];
+    } else {
+      // 수기신청서 없음: 기존 [카드1, 카드2, 카드3, 현금] 배치
+      slots = [
+        { label: '카드 영수증 #1', buf: cardArr[0] || null },
+        { label: '카드 영수증 #2', buf: cardArr[1] || null },
+        { label: '카드 영수증 #3', buf: cardArr[2] || null },
+        { label: '현금 영수증',    buf: cashReceiptBuffer || null }
+      ];
+    }
 
     const margin = 12;
     const cellGap = 8;
