@@ -1,4 +1,4 @@
-const { PDFDocument, rgb } = require('pdf-lib');
+const { PDFDocument, rgb, degrees } = require('pdf-lib');
 const fs = require('fs');
 const path = require('path');
 const fontkit = require('@pdf-lib/fontkit');
@@ -6,6 +6,9 @@ const fontkit = require('@pdf-lib/fontkit');
 // A5 portrait 페이지 규격 (148mm × 210mm)
 const A5_W = 419.53;
 const A5_H = 595.28;
+// A4 페이지 규격 (210mm × 297mm)
+const A4_W = 595.28;
+const A4_H = 841.89;
 
 const pdfService = {
   // A5 단일 페이지 신청서 — 레퍼런스(0050_001) 좌측 양식과 동일한 구조로 작성
@@ -13,15 +16,7 @@ const pdfService = {
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(fontkit);
 
-    const fontPath = 'C:\\Windows\\Fonts\\malgun.ttf';
-    let font;
-    if (fs.existsSync(fontPath)) {
-      font = await pdfDoc.embedFont(fs.readFileSync(fontPath), { subset: false });
-    } else {
-      console.warn("⚠️ 한글 맑은 고딕 폰트를 찾을 수 없어 Helvetica 폰트로 폴백합니다.");
-      const { StandardFonts } = require('pdf-lib');
-      font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    }
+    const font = await loadKoreanFont(pdfDoc);
 
     const page = pdfDoc.addPage([A5_W, A5_H]);
     const { width: W, height: H } = page.getSize();
@@ -142,7 +137,11 @@ const pdfService = {
     y -= ROW + 4;
 
     // ─── 5. 카드결제정보 박스 ─────────────────────────────────
-    const card = receiptOcrData?.card || {};
+    // receiptOcrData.card 는 배열(다중) 또는 단일 객체(구버전) — 정규화
+    const cardsArr = Array.isArray(receiptOcrData?.card)
+      ? receiptOcrData.card.filter(Boolean)
+      : (receiptOcrData?.card ? [receiptOcrData.card] : []);
+
     cell(ML, y, CW, ROW, { bg: LBL_BG }); text('카드결제정보', ML + 4, y);
     y -= ROW;
 
@@ -156,15 +155,18 @@ const pdfService = {
     });
     y -= ROW;
 
-    // 데이터 행
-    cx = ML;
-    const cardVals = [card.issuer || '', formatNum(card.amount), card.approvalNo || '', ''];
-    cardVals.forEach((v, i) => {
-      cell(cx, y, ccW[i], ROW);
-      text(v, cx + 4, y);
-      cx += ccW[i];
-    });
-    y -= ROW;
+    // 데이터 행 — 카드별로 1행씩, 없으면 빈 1행
+    const dataRows = cardsArr.length > 0 ? cardsArr : [{}];
+    for (const c of dataRows) {
+      cx = ML;
+      const vals = [c.issuer || '', formatNum(c.amount), c.approvalNo || '', ''];
+      vals.forEach((v, i) => {
+        cell(cx, y, ccW[i], ROW);
+        text(v, cx + 4, y);
+        cx += ccW[i];
+      });
+      y -= ROW;
+    }
 
     // 합계 행
     cell(ML, y, CW - 120, ROW, { bg: LBL_BG });
@@ -174,24 +176,27 @@ const pdfService = {
     text('※ 카드 영수증 필수 첨부', MR - 4, y, { align: 'right', size: 7.5, color: rgb(0.7, 0.2, 0.2) });
     y -= ROW + 6;
 
-    // ─── 6. 개인정보 동의서 ──────────────────────────────────
-    text('개인 정보 수집·이용 동의서', ML, y, { size: 8.5 });
+    // ─── 6. 개인정보 동의서 (이하 전부 중앙정렬) ──────────────────────
+    const CX = W / 2;
+    text('개인 정보 수집·이용 동의서', CX, y, { size: 8.5, align: 'center' });
+    y -= 14;
+    text('교재구입 및 구독회원, 관리회원의 개인정보 수집 및 이용 목적은 다음과 같습니다.', CX, y, { size: 7, color: rgb(0.4, 0.4, 0.4), align: 'center' });
     y -= 11;
-    text('교재구입 및 구독회원, 관리회원의 개인정보 수집 및 이용 목적은 다음과 같습니다.', ML, y, { size: 7, color: rgb(0.4, 0.4, 0.4) });
-    y -= 9;
-    text('내용을 자세히 읽어 보신 후 동의 여부를 결정하여 주시기 바랍니다.', ML, y, { size: 7, color: rgb(0.4, 0.4, 0.4) });
-    y -= 10;
+    text('내용을 자세히 읽어 보신 후 동의 여부를 결정하여 주시기 바랍니다.', CX, y, { size: 7, color: rgb(0.4, 0.4, 0.4), align: 'center' });
+    y -= 14;
 
-    // 1행 표
-    const cWs = [CW * 0.4, CW * 0.3, CW * 0.3];
-    let hx = ML;
+    // 1행 표 — 폭 축소 후 가운데 정렬
+    const tblW = 320;
+    const tblX = (W - tblW) / 2;
+    const cWs = [tblW * 0.4, tblW * 0.3, tblW * 0.3];
+    let hx = tblX;
     ['수집목적', '항목', '보유 및 이용기간'].forEach((h, i) => {
       cell(hx, y, cWs[i], ROW, { bg: LBL_BG });
       text(h, hx + cWs[i] / 2, y, { align: 'center', size: 7.5 });
       hx += cWs[i];
     });
     y -= ROW;
-    hx = ML;
+    hx = tblX;
     ['회원 식별 및 서비스 제공', '이름, 연락처', '수집일로부터 1년'].forEach((v, i) => {
       cell(hx, y, cWs[i], ROW);
       text(v, hx + cWs[i] / 2, y, { align: 'center', size: 7.5 });
@@ -199,67 +204,138 @@ const pdfService = {
     });
     y -= ROW + 2;
 
-    text('※ 개인정보 수집·이용을 거부할 권리가 있습니다. 단, 거부 시 서비스가 제한 될 수 있습니다.', ML, y, { size: 6.8, color: rgb(0.5, 0.5, 0.5) });
+    text('※ 개인정보 수집·이용을 거부할 권리가 있습니다. 단, 거부 시 서비스가 제한 될 수 있습니다.', CX, y, { size: 6.8, color: rgb(0.5, 0.5, 0.5), align: 'center' });
     y -= 12;
 
     const consentTxt = data.privacyConsent ? '[ V ] 동의함            [   ] 거부함' : '[   ] 동의함            [ V ] 거부함';
-    text(consentTxt, ML, y, { size: 8 });
+    text(consentTxt, CX, y, { size: 8, align: 'center' });
     y -= 16;
 
-    // ─── 7. 신청인 서명 & 회사 정보 ───────────────────────────
-    text('신청 일자: ' + (data.applyDate || ''), ML, y, { size: 7.5, color: rgb(0.3, 0.3, 0.3) });
+    // ─── 7. 신청 일자 + 신청인 서명 + 회사 정보 (모두 중앙정렬) ───────
+    text('신청 일자: ' + (data.applyDate || ''), CX, y, { size: 7.5, color: rgb(0.3, 0.3, 0.3), align: 'center' });
+    y -= 14;
 
-    const sigBoxW = 130;
-    const sigBoxH = 38;
-    const sigX = MR - sigBoxW;
+    const sigBoxW = 160;
+    const sigBoxH = 42;
+    const sigX = (W - sigBoxW) / 2;
     const sigY = y;
     cell(sigX, sigY, sigBoxW, sigBoxH);
-    text('신청인 서명', sigX + 4, sigY, { size: 7, color: rgb(0.4, 0.4, 0.4) });
+    text('신청인 서명', sigX + sigBoxW / 2, sigY, { size: 7, color: rgb(0.4, 0.4, 0.4), align: 'center' });
     if (signatureBase64) {
       try {
         const clean = signatureBase64.replace(/^data:image\/png;base64,/, '');
         const sigImg = await pdfDoc.embedPng(Buffer.from(clean, 'base64'));
         page.drawImage(sigImg, {
-          x: sigX + 10,
+          x: sigX + 15,
           y: sigY - sigBoxH + 4,
-          width: sigBoxW - 20,
-          height: sigBoxH - 14
+          width: sigBoxW - 30,
+          height: sigBoxH - 16
         });
       } catch (e) {
         console.error('서명 임베딩 오류:', e.message);
       }
     }
-    y -= sigBoxH + 6;
+    y -= sigBoxH + 8;
 
-    text('에이멘에이 주식회사', ML, y, { size: 10, color: rgb(0.1, 0.15, 0.3) });
-    text('(직인 자리 — 추후 직인 이미지로 대체)', ML + 95, y, { size: 6.5, color: rgb(0.6, 0.6, 0.6) });
+    text('에이멘에이 주식회사', CX, y, { size: 10, color: rgb(0.1, 0.15, 0.3), align: 'center' });
+    y -= 10;
+    text('(직인 자리 — 추후 직인 이미지로 대체)', CX, y, { size: 6.5, color: rgb(0.6, 0.6, 0.6), align: 'center' });
 
     const pdfBytes = await pdfDoc.save();
     return Buffer.from(pdfBytes);
   },
 
-  // 신청서 PDF 뒤에 원본사진·카드영수증·현금영수증을 페이지로 이어붙여 단일 통합 PDF 반환
-  buildBundledPdf: async (applicationPdfBuffer, photoBuffer = null, receiptBuffer = null, cashReceiptBuffer = null) => {
-    const finalDoc = await PDFDocument.load(applicationPdfBuffer);
+  // 단일 A4 가로 페이지: 좌측 = 신청서 (A5 그대로 임베드), 우측 = 영수증 2x2 그리드 (이미지 90° CW 회전)
+  // photoBuffer(원본 신청서 사진)는 현재 합성 레이아웃에서 사용 안 함 (서명·OCR 처리 후 폐기)
+  buildBundledPdf: async (applicationPdfBuffer, _photoBuffer = null, cardReceiptBuffers = null, cashReceiptBuffer = null) => {
+    const finalDoc = await PDFDocument.create();
     finalDoc.registerFontkit(fontkit);
+    const titleFont = await loadKoreanFont(finalDoc);
 
-    const fontPath = 'C:\\Windows\\Fonts\\malgun.ttf';
-    let titleFont;
-    if (fs.existsSync(fontPath)) {
-      titleFont = await finalDoc.embedFont(fs.readFileSync(fontPath), { subset: true });
-    } else {
-      const { StandardFonts } = require('pdf-lib');
-      titleFont = await finalDoc.embedFont(StandardFonts.Helvetica);
+    // A4 landscape: 841.89 × 595.28 — A5 portrait(419.53 × 595.28)가 정확히 좌측 절반에 들어맞음
+    const page = finalDoc.addPage([A4_H, A4_W]);
+    const { width: pw, height: ph } = page.getSize();
+    const halfW = pw / 2;
+
+    // ── 좌측: 기존 A5 신청서 그대로 임베드 (스케일 1.0, 가로 절반 정확히 채움) ──
+    const [formPage] = await finalDoc.embedPdf(applicationPdfBuffer, [0]);
+    const xScale = halfW / A5_W; // ≈ 1.0034 (소수점 보정)
+    const yScale = ph / A5_H;
+    page.drawPage(formPage, { x: 0, y: 0, xScale, yScale });
+
+    // 좌·우 구분선
+    page.drawLine({
+      start: { x: halfW, y: 0 },
+      end: { x: halfW, y: ph },
+      thickness: 0.5,
+      color: rgb(0.7, 0.7, 0.75)
+    });
+
+    // ── 우측: 영수증 4슬롯 (카드 #1·#2·#3 + 현금) 2x2 ──
+    const cardArr = Array.isArray(cardReceiptBuffers) ? cardReceiptBuffers.filter(Boolean) : [];
+    const slots = [
+      { label: '카드 영수증 #1', buf: cardArr[0] || null },
+      { label: '카드 영수증 #2', buf: cardArr[1] || null },
+      { label: '카드 영수증 #3', buf: cardArr[2] || null },
+      { label: '현금 영수증',    buf: cashReceiptBuffer || null }
+    ];
+
+    const margin = 12;
+    const cellGap = 8;
+    const cellW = (halfW - margin * 2 - cellGap) / 2;
+    const cellH = (ph - margin * 2 - cellGap) / 2;
+    const cellLabelH = 14;
+
+    for (let i = 0; i < 4; i++) {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const x = halfW + margin + col * (cellW + cellGap);
+      const y = margin + (1 - row) * (cellH + cellGap);
+      const slot = slots[i];
+
+      // 상단 라벨
+      page.drawRectangle({ x, y: y + cellH - cellLabelH, width: cellW, height: cellLabelH, color: rgb(0.94, 0.95, 0.97), borderColor: rgb(0.55, 0.6, 0.65), borderWidth: 0.5 });
+      page.drawText(slot.label, { x: x + 5, y: y + cellH - cellLabelH + 4, size: 8, font: titleFont, color: rgb(0.1, 0.15, 0.3) });
+
+      // 이미지 영역
+      const imgY = y;
+      const imgH = cellH - cellLabelH;
+      page.drawRectangle({ x, y: imgY, width: cellW, height: imgH, borderColor: rgb(0.55, 0.6, 0.65), borderWidth: 0.5 });
+
+      if (slot.buf) {
+        const img = await embedAuto(finalDoc, slot.buf);
+        drawImageFitted(page, img, x + 2, imgY + 2, cellW - 4, imgH - 4); // 90° CW 회전 적용됨
+      } else {
+        page.drawText('(미첨부)', { x: x + cellW / 2 - 18, y: imgY + imgH / 2 - 4, size: 9, font: titleFont, color: rgb(0.65, 0.65, 0.7) });
+      }
     }
-
-    await appendImagePage(finalDoc, photoBuffer, '첨부 1. 원본 신청서 사진 (Original Application Photo)', titleFont);
-    await appendImagePage(finalDoc, receiptBuffer, '첨부 2. 카드 결제 영수증 (Card Payment Receipt)', titleFont);
-    await appendImagePage(finalDoc, cashReceiptBuffer, '첨부 3. 현금영수증 (Cash Receipt)', titleFont);
 
     const bytes = await finalDoc.save();
     return Buffer.from(bytes);
   }
 };
+
+// 플랫폼별 한글 TTF 폰트 자동 탐색 후 pdf-lib에 임베드
+async function loadKoreanFont(pdfDoc) {
+  const candidates = [
+    'C:\\Windows\\Fonts\\malgun.ttf',                                // Windows (로컬 개발)
+    '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',               // Debian/Ubuntu (Cloud Run, fonts-nanum)
+    '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',          // Debian 대체
+    '/System/Library/Fonts/AppleSDGothicNeo.ttc'                     // macOS (개발)
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      try {
+        return await pdfDoc.embedFont(fs.readFileSync(p), { subset: false });
+      } catch (e) {
+        console.warn(`⚠️ 폰트 임베딩 실패 [${p}]: ${e.message}`);
+      }
+    }
+  }
+  console.error("❌ 한글 폰트를 찾을 수 없어 Helvetica로 폴백 — 한글 출력 실패 가능");
+  const { StandardFonts } = require('pdf-lib');
+  return await pdfDoc.embedFont(StandardFonts.Helvetica);
+}
 
 // 숫자 문자열에 천단위 콤마 적용. 숫자 외 문자열은 그대로 반환
 function formatNum(v) {
@@ -269,42 +345,42 @@ function formatNum(v) {
   return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-// 이미지 버퍼를 A5 한 페이지로 추가 (상단 타이틀 + 가운데 정렬, 비율 유지)
-async function appendImagePage(pdfDoc, imageBuffer, title, titleFont) {
-  if (!imageBuffer || imageBuffer.length === 0) return;
+// 이미지 버퍼를 pdf-lib 이미지 객체로 임베드 (JPG/PNG 자동 감지)
+async function embedAuto(pdfDoc, imageBuffer) {
+  if (!imageBuffer || imageBuffer.length === 0) return null;
+  if (imageBuffer[0] === 0xFF && imageBuffer[1] === 0xD8) return await pdfDoc.embedJpg(imageBuffer);
+  if (imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50) return await pdfDoc.embedPng(imageBuffer);
+  try { return await pdfDoc.embedJpg(imageBuffer); }
+  catch { return await pdfDoc.embedPng(imageBuffer); }
+}
 
-  let image;
-  if (imageBuffer[0] === 0xFF && imageBuffer[1] === 0xD8) {
-    image = await pdfDoc.embedJpg(imageBuffer);
-  } else if (imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50) {
-    image = await pdfDoc.embedPng(imageBuffer);
+// 지정 박스 안에 이미지를 시계방향 90° 회전하여 비율 유지·가운데 정렬·박스 채움
+// (휴대폰 카메라가 EXIF 회전 메타데이터로 저장한 사진을 PDF에서 올바른 방향으로 표시)
+function drawImageFitted(page, image, boxX, boxY, boxW, boxH) {
+  if (!image) return;
+  // 90° CW 회전 후의 시각적 가로/세로 (원본의 height/width가 뒤바뀜)
+  const rotW = image.height;
+  const rotH = image.width;
+  const aspect = rotW / rotH;
+  const boxAspect = boxW / boxH;
+  let visualW, visualH;
+  if (aspect > boxAspect) {
+    visualW = boxW;
+    visualH = boxW / aspect;
   } else {
-    try { image = await pdfDoc.embedJpg(imageBuffer); }
-    catch { image = await pdfDoc.embedPng(imageBuffer); }
+    visualH = boxH;
+    visualW = boxH * aspect;
   }
-
-  const page = pdfDoc.addPage([A5_W, A5_H]);
-  const { width: pw, height: ph } = page.getSize();
-
-  page.drawText(title, {
-    x: 14, y: ph - 24, size: 9, font: titleFont, color: rgb(0.09, 0.16, 0.3)
-  });
-  page.drawRectangle({
-    x: 14, y: ph - 30, width: pw - 28, height: 1.5, color: rgb(0.39, 0.4, 0.95)
-  });
-
-  const maxWidth = pw - 28;
-  const maxHeight = ph - 50;
-  const imgRatio = image.width / image.height;
-  const boxRatio = maxWidth / maxHeight;
-  const drawWidth = imgRatio > boxRatio ? maxWidth : maxHeight * imgRatio;
-  const drawHeight = imgRatio > boxRatio ? maxWidth / imgRatio : maxHeight;
-
+  const visualX = boxX + (boxW - visualW) / 2;
+  const visualY = boxY + (boxH - visualH) / 2;
+  // -90° 회전은 (x, y)을 회전 중심으로 하므로 (x = visual_left, y = visual_top)에서
+  // pre-rotation width = visualH, pre-rotation height = visualW 로 그려야 시각상 (visualW × visualH) 가 됨
   page.drawImage(image, {
-    x: (pw - drawWidth) / 2,
-    y: (ph - 35 - drawHeight) / 2,
-    width: drawWidth,
-    height: drawHeight
+    x: visualX,
+    y: visualY + visualH,
+    width: visualH,
+    height: visualW,
+    rotate: degrees(-90)
   });
 }
 

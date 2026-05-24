@@ -58,10 +58,12 @@ const driveService = {
         // [OAuth2 User Mode]에서는 사용자 본인의 권한이므로 0바이트 롤백이나 쿼타 우회 트릭 없이 
         // 완벽하고 기풍 있게 본래의 연월 분류 하위 폴더 구조까지 아름답게 자동 생성하여 100% 무제한 업로드합니다!
         if (isOAuthUserMode) {
-          console.log(`📤 [OAuth2 User Mode] 최상위 폴더[${parentId}] 내에 연월 폴더 조회/생성 중...`);
+          // drive.file 범위에서는 앱이 직접 만든 파일/폴더만 접근 가능 → 앱 전용 루트 폴더를 자동 생성/탐색
+          const appRootId = await getOrCreateAppRootFolder();
+          console.log(`📤 [OAuth2 User Mode] 앱 루트 폴더[${appRootId}] 내에 연월 폴더 조회/생성 중...`);
           const currentYearMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-          const folderId = await getOrCreateFolder(currentYearMonth);
-          const targetParentId = folderId || parentId;
+          const folderId = await getOrCreateFolder(currentYearMonth, appRootId);
+          const targetParentId = folderId || appRootId;
 
           console.log(`📤 [OAuth2 User Mode] 드라이브에 신청서 PDF 업로드 중: ${pdfFileName}`);
           const pdfFileMetadata = { name: pdfFileName, parents: targetParentId ? [targetParentId] : [] };
@@ -243,11 +245,42 @@ driveService.deleteFile = async (fileId, fallbackFileName = null) => {
   }
 };
 
-// 공유 폴더 내 하위 연월 폴더 검색 및 생성 도우미 함수 (OAuth2 User Mode용)
-async function getOrCreateFolder(folderName) {
+// 앱 전용 루트 폴더 (drive.file 범위에서 동작) — 이름으로 검색 후 없으면 새로 생성
+const APP_ROOT_FOLDER_NAME = '에이멘에이_교재구매_신청서';
+let cachedAppRootId = null;
+
+async function getOrCreateAppRootFolder() {
+  if (cachedAppRootId) return cachedAppRootId;
   if (!driveClient) return null;
   try {
-    const parentId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+    const query = `name = '${APP_ROOT_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    const response = await driveClient.files.list({
+      q: query,
+      fields: 'files(id, name)',
+      spaces: 'drive'
+    });
+    if (response.data.files && response.data.files.length > 0) {
+      cachedAppRootId = response.data.files[0].id;
+      console.log(`📂 [App Root] 기존 루트 폴더 발견 [${APP_ROOT_FOLDER_NAME}]: ${cachedAppRootId}`);
+      return cachedAppRootId;
+    }
+    const folder = await driveClient.files.create({
+      resource: { name: APP_ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
+      fields: 'id'
+    });
+    cachedAppRootId = folder.data.id;
+    console.log(`📂 [App Root] 신규 루트 폴더 생성 [${APP_ROOT_FOLDER_NAME}]: ${cachedAppRootId}`);
+    return cachedAppRootId;
+  } catch (e) {
+    console.error("앱 루트 폴더 검색/생성 중 오류:", e.message);
+    return null;
+  }
+}
+
+// 지정된 부모 폴더 안에서 하위 연월 폴더 검색·생성
+async function getOrCreateFolder(folderName, parentId = null) {
+  if (!driveClient) return null;
+  try {
     let query = `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     if (parentId) {
       query += ` and '${parentId}' in parents`;
@@ -256,8 +289,7 @@ async function getOrCreateFolder(folderName) {
     const response = await driveClient.files.list({
       q: query,
       fields: 'files(id)',
-      spaces: 'drive',
-      supportsAllDrives: true
+      spaces: 'drive'
     });
 
     if (response.data.files && response.data.files.length > 0) {
@@ -274,8 +306,7 @@ async function getOrCreateFolder(folderName) {
 
     const folder = await driveClient.files.create({
       resource: fileMetadata,
-      fields: 'id',
-      supportsAllDrives: true
+      fields: 'id'
     });
 
     console.log(`📂 [OAuth2 User Mode] 신규 연월 폴더 생성 완료 [${folderName}]: ${folder.data.id}`);

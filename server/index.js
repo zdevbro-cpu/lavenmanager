@@ -15,9 +15,20 @@ const pdfService = require('./services/pdfService');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// CORS 설정 - Vite 기본 포트인 5173 허용
+// CORS 설정 - 로컬 dev + Firebase Hosting 프로덕션 도메인 + 별도 ALLOWED_ORIGINS env 변수 지원
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://lavenmanager.web.app',
+  'https://lavenmanager.firebaseapp.com',
+  ...(process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
+];
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: (origin, cb) => {
+    // 동일출처/서버투서버(origin 없음) 또는 화이트리스트 매칭 시 허용
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS 차단: ${origin}`));
+  },
   credentials: true
 }));
 
@@ -93,7 +104,11 @@ app.post('/api/ocr', upload.single('photo'), async (req, res) => {
 // 3. 교재구매 신청 완료 제출 API (전자서명 합성 ➔ PDF 생성 ➔ 구글드라이브 업로드 ➔ DB 저장)
 app.post('/api/applications', async (req, res) => {
   try {
-    const { formData, signatureData, photoData, receiptPhotoData, cashReceiptPhotoData, receiptOcrData } = req.body;
+    const { formData, signatureData, photoData, receiptPhotoData, receiptPhotoDataList, cashReceiptPhotoData, receiptOcrData } = req.body;
+    // 신·구 페이로드 호환: receiptPhotoDataList(배열) > receiptPhotoData(단일)
+    const cardReceiptList = Array.isArray(receiptPhotoDataList) && receiptPhotoDataList.length > 0
+      ? receiptPhotoDataList
+      : (receiptPhotoData ? [receiptPhotoData] : []);
 
     if (!formData || !formData.buyerName || !formData.phoneNumber || !formData.address) {
       return res.status(400).json({ error: '기본 구매자명, 연락처, 주소 정보는 필수로 채워야 합니다.' });
@@ -101,19 +116,19 @@ app.post('/api/applications', async (req, res) => {
 
     console.log(`📝 신청서 접수 프로세스 시작. 구매자명: ${formData.buyerName}`);
 
-    // 원본 사진, 카드 영수증, 현금영수증 이미지 버퍼 변환
+    // 원본 사진, 카드 영수증 N장(최대 3), 현금영수증 이미지 버퍼 변환
     const photoBuffer = decodeBase64Image(photoData);
-    const receiptBuffer = decodeBase64Image(receiptPhotoData);
+    const cardReceiptBuffers = cardReceiptList.map(decodeBase64Image).filter(Boolean);
     const cashReceiptBuffer = decodeBase64Image(cashReceiptPhotoData);
 
     // 3.1 pdf-lib 모듈을 사용하여 A5 신청서 PDF 생성 (서명 + 카드결제정보 합성)
     const applicationPdfBuffer = await pdfService.generateApplicationPdf(formData, signatureData, receiptOcrData);
 
-    // 3.1.5 신청서 + 원본사진 + 카드영수증 + 현금영수증을 단일 통합 PDF로 묶기
+    // 3.1.5 신청서 + 원본사진 + 카드영수증 N장 + 현금영수증을 단일 통합 PDF로 묶기
     const bundledPdfBuffer = await pdfService.buildBundledPdf(
       applicationPdfBuffer,
       photoBuffer,
-      receiptBuffer,
+      cardReceiptBuffers,
       cashReceiptBuffer
     );
 
@@ -236,10 +251,8 @@ app.get('/api/auth/google', (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline', // 영구적인 리프레시 토큰(Refresh Token) 획득용 핵심 옵션
     prompt: 'consent',       // 매번 동의 화면을 띄워 토큰 재발급 안정화
-    scope: [
-      'https://www.googleapis.com/auth/drive',
-      'https://www.googleapis.com/auth/drive.file'
-    ]
+    // drive.file 만 요청 — "이 앱이 만든 파일/폴더"만 접근 (비민감 범위, 검수 없이 게시 가능)
+    scope: ['https://www.googleapis.com/auth/drive.file']
   });
   
   res.redirect(url);

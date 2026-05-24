@@ -41,3 +41,10 @@ server/uploads/
 
 # Prisma 자동 생성물
 server/node_modules/.prisma
+
+# Firebase Hosting 로컬 캐시
+.firebase/
+
+# Claude Code 로컬 설정
+.claude/
+

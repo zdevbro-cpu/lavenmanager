@@ -29,6 +29,14 @@
     height: 100vh;
     overflow: hidden;
   }
+  /* 모바일에선 body가 네이티브 스크롤되도록 풀어줌 (브라우저 주소창 때문에 100vh가 잠식되어 내부 스크롤 안 잡힘) */
+  @media (max-width: 767px) {
+    body {
+      height: auto;
+      min-height: 100dvh;
+      overflow: auto;
+    }
+  }
 }
 
 /* 스크롤바 숨김 클래스 */
@@ -178,6 +186,31 @@
   display: flex;
   flex-direction: column;
   align-self: center;
+}
+
+/* 실제 모바일 디바이스에선 가짜 폰 프레임/노치/상단 시계 영역 모두 제거 후 전체화면 + 네이티브 스크롤 허용 */
+@media (max-width: 767px) {
+  .mobile-mockup {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .mobile-notch,
+  .mobile-header {
+    display: none;
+  }
+  .webview {
+    overflow-y: visible;
+    height: auto;
+    padding-bottom: 2rem;
+  }
+  .screen-container {
+    height: auto;
+    align-items: flex-start;
+  }
 }
 
 .mobile-header {

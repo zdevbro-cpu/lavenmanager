@@ -3,6 +3,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, on
 import { auth } from '../firebase';
 import * as XLSX from 'xlsx';
 import { RotateCw, Download, LogOut, ShieldAlert, FileSpreadsheet, FolderOpen, Eye, Trash2 } from 'lucide-react';
+import { API_BASE } from '../config';
 
 export default function AdminDashboard() {
   const [user, setUser] = useState(null);
@@ -38,7 +39,7 @@ export default function AdminDashboard() {
   const fetchApplications = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/applications');
+      const response = await fetch(`${API_BASE}/api/applications`);
       const json = await response.json();
       if (json.success) {
         setApplications(json.data);
@@ -122,7 +123,7 @@ export default function AdminDashboard() {
   const handleDelete = async (item) => {
     if (!window.confirm(`접수번호 #${item.id} (${item.buyerName})의 신청서를 정말 삭제하시겠습니까?\n구글 드라이브의 통합 PDF도 함께 삭제됩니다.`)) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/applications/${item.id}`, {
+      const response = await fetch(`${API_BASE}/api/applications/${item.id}`, {
         method: 'DELETE'
       });
       const json = await response.json();
@@ -142,7 +143,7 @@ export default function AdminDashboard() {
     // 백엔드 주소로 연결 (구글 연동 미완료 시 로컬 주소 리턴)
     const fileUrl = item.gdrivePdfFileId && !item.gdrivePdfFileId.startsWith('gdrive_')
       ? `https://drive.google.com/file/d/${item.gdrivePdfFileId}/view?usp=drivesdk`
-      : `http://localhost:3001/uploads/신청서_${item.buyerName}_${item.phoneNumber.replace(/-/g,'')}.pdf`;
+      : `${API_BASE}/uploads/신청서_${item.buyerName}_${item.phoneNumber.replace(/-/g,'')}.pdf`;
     
     setSelectedDoc({
       ...item,
@@ -250,7 +251,7 @@ export default function AdminDashboard() {
         <div className="bg-bg-secondary border border-border-color rounded-xl p-4 shadow-lg">
           <div className="text-xs text-text-secondary">오늘 접수된 총 신청서</div>
           <div className="text-2xl font-bold text-accent-indigo mt-1">{stats.totalToday} 건</div>
-          <div className="text-[10px] text-[#10b981] mt-1 font-semibold">실시간 Supabase DB 적재 완료</div>
+          <div className="text-[10px] text-[#10b981] mt-1 font-semibold">실시간 Cloud SQL DB 적재 완료</div>
         </div>
 
         <div className="bg-bg-secondary border border-border-color rounded-xl p-4 shadow-lg">
@@ -329,7 +330,7 @@ export default function AdminDashboard() {
                         <a
                           href={item.gdrivePdfFileId && !item.gdrivePdfFileId.startsWith('gdrive_')
                             ? `https://drive.google.com/file/d/${item.gdrivePdfFileId}/view`
-                            : `http://localhost:3001/uploads/신청서_${item.buyerName}_${item.phoneNumber.replace(/-/g,'')}.pdf`}
+                            : `${API_BASE}/uploads/신청서_${item.buyerName}_${item.phoneNumber.replace(/-/g,'')}.pdf`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="w-7 h-7 bg-slate-800 hover:bg-accent-indigo border border-border-color rounded-md flex items-center justify-center text-white transition-colors"
@@ -410,18 +411,23 @@ export default function AdminDashboard() {
                   <div>🔑 <strong>구글 드라이브 ID:</strong> {selectedDoc.gdrivePdfFileId || 'gdrive_mock_key_92931'}</div>
                 </div>
 
-                {/* 카드/현금 영수증 OCR 추출 정보 표시 */}
-                {selectedDoc.receiptOcrData?.card && (
-                  <div className="bg-accent-indigo/10 border border-accent-indigo/40 p-3 rounded-xl text-xs space-y-1">
-                    <div className="text-accent-indigo font-bold text-[11px]">💳 카드 영수증 추출 정보</div>
-                    {selectedDoc.receiptOcrData.card.issuer && <div className="text-text-secondary">· 카드사: <span className="text-white font-semibold">{selectedDoc.receiptOcrData.card.issuer}</span></div>}
-                    {selectedDoc.receiptOcrData.card.cardNumber && <div className="text-text-secondary">· 카드번호: <span className="text-white font-mono">{selectedDoc.receiptOcrData.card.cardNumber}</span></div>}
-                    {selectedDoc.receiptOcrData.card.amount && <div className="text-text-secondary">· 결제금액: <span className="text-amber-400 font-semibold">{Number(selectedDoc.receiptOcrData.card.amount).toLocaleString()}원</span></div>}
-                    {selectedDoc.receiptOcrData.card.approvalNo && <div className="text-text-secondary">· 승인번호: <span className="text-white font-mono">{selectedDoc.receiptOcrData.card.approvalNo}</span></div>}
-                    {selectedDoc.receiptOcrData.card.terminalNo && <div className="text-text-secondary">· 단말기번호: <span className="text-white font-mono">{selectedDoc.receiptOcrData.card.terminalNo}</span></div>}
-                    {selectedDoc.receiptOcrData.card.serialNo && <div className="text-text-secondary">· 일련번호: <span className="text-white font-mono">{selectedDoc.receiptOcrData.card.serialNo}</span></div>}
-                  </div>
-                )}
+                {/* 카드 영수증 OCR — 배열(다중) / 단일 객체(구 버전) 양쪽 호환 */}
+                {selectedDoc.receiptOcrData?.card && (() => {
+                  const cards = Array.isArray(selectedDoc.receiptOcrData.card)
+                    ? selectedDoc.receiptOcrData.card
+                    : [selectedDoc.receiptOcrData.card];
+                  return cards.filter(Boolean).map((c, idx) => (
+                    <div key={idx} className="bg-accent-indigo/10 border border-accent-indigo/40 p-3 rounded-xl text-xs space-y-1">
+                      <div className="text-accent-indigo font-bold text-[11px]">💳 카드 영수증 #{idx + 1} 추출 정보</div>
+                      {c.issuer && <div className="text-text-secondary">· 카드사: <span className="text-white font-semibold">{c.issuer}</span></div>}
+                      {c.cardNumber && <div className="text-text-secondary">· 카드번호: <span className="text-white font-mono">{c.cardNumber}</span></div>}
+                      {c.amount && <div className="text-text-secondary">· 결제금액: <span className="text-amber-400 font-semibold">{Number(c.amount).toLocaleString()}원</span></div>}
+                      {c.approvalNo && <div className="text-text-secondary">· 승인번호: <span className="text-white font-mono">{c.approvalNo}</span></div>}
+                      {c.terminalNo && <div className="text-text-secondary">· 단말기번호: <span className="text-white font-mono">{c.terminalNo}</span></div>}
+                      {c.serialNo && <div className="text-text-secondary">· 일련번호: <span className="text-white font-mono">{c.serialNo}</span></div>}
+                    </div>
+                  ));
+                })()}
                 {selectedDoc.receiptOcrData?.cash && (
                   <div className="bg-emerald-500/10 border border-emerald-500/40 p-3 rounded-xl text-xs space-y-1">
                     <div className="text-emerald-400 font-bold text-[11px]">🧾 현금영수증 추출 정보</div>

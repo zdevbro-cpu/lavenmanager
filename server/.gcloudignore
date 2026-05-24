@@ -1,0 +1,13 @@
+.git
+.gitignore
+.gcloudignore
+.dockerignore
+node_modules
+npm-debug.log
+.env
+.env.*
+!.env.example
+config/google-key.json
+uploads/
+*.md
+test-*.js
