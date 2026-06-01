@@ -13,7 +13,8 @@ datasource db {
 model Application {
   id                 Int      @id @default(autoincrement())
   buyerName          String   @map("buyer_name")          // 구매자 성명
-  childInfo          String?  @map("child_info")          // 자녀 성명 및 연령
+  childInfo          String?  @map("child_info")          // 자녀 성명 (구버전 호환: 이전엔 "이름 (연령)" 형태로 저장됨)
+  childBirthdate     String?  @map("child_birthdate")     // 자녀 생년월일 (YYYY-MM-DD)
   phoneNumber        String   @map("phone_number")        // 연락처
   address            String   @map("address")             // 배송지 주소
   deliveryMemo       String?  @map("delivery_memo")       // 배송 메모
@@ -24,6 +25,8 @@ model Application {
   book2Price         String?  @map("book_2_price")        // 교재 2 금액
   subscriptionType   String?  @map("subscription_type")   // 구독회원 상품구분
   subscriptionPrice  String?  @map("subscription_price")  // 구독 상품 금액
+  managementType     String?  @map("management_type")     // 관리회원 상품구분
+  managementPrice    String?  @map("management_price")    // 관리회원 금액
   
   cashPayment        String?  @map("cash_payment")        // 현금 결제액
   cardPayment        String?  @map("card_payment")        // 카드 결제액

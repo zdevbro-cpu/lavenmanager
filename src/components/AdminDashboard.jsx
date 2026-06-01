@@ -96,7 +96,8 @@ export default function AdminDashboard() {
     const excelRows = applications.map((item) => ({
       "접수 번호": item.id,
       "구매자명 (수령인)": item.buyerName,
-      "자녀 성명(연령)": item.childInfo || '',
+      "자녀 성명": item.childInfo || '',
+      "자녀 생년월일": item.childBirthdate || '',
       "연락처": item.phoneNumber,
       "우편배송지 주소": item.address,
       "배송 요청사항": item.deliveryMemo || '문 앞 보관',
@@ -106,6 +107,8 @@ export default function AdminDashboard() {
       "금액 2": item.book2Price ? `${Number(item.book2Price.replace(/,/g,'')).toLocaleString()}원` : '0원',
       "구독권 구분": item.subscriptionType || '',
       "구독 금액": item.subscriptionPrice ? `${Number(item.subscriptionPrice.replace(/,/g,'')).toLocaleString()}원` : '0원',
+      "관리회원 구분": item.managementType || '',
+      "관리회원 금액": item.managementPrice ? `${Number(item.managementPrice.replace(/,/g,'')).toLocaleString()}원` : '0원',
       "최종 현금결제액": item.cashPayment ? `${Number(item.cashPayment).toLocaleString()}원` : '0원',
       "최종 카드결제액": item.cardPayment ? `${Number(item.cardPayment).toLocaleString()}원` : '0원',
       "현금영수증 번호": item.cashReceiptNo || '',
@@ -308,7 +311,10 @@ export default function AdminDashboard() {
                     <td className="p-3 font-semibold text-white">{item.buyerName}</td>
                     <td className="p-3">{item.phoneNumber}</td>
                     <td className="p-3 max-w-[200px] truncate" title={item.address}>{item.address}</td>
-                    <td className="p-3 text-slate-400">{item.childInfo || '-'}</td>
+                    <td className="p-3 text-slate-400">
+                      {item.childInfo || '-'}
+                      {item.childBirthdate && <span className="block text-[10px] text-slate-500">{item.childBirthdate}</span>}
+                    </td>
                     <td className="p-3">
                       {item.book1Name || '-'}{item.book2Name ? ` / ${item.book2Name}` : ''}
                     </td>
@@ -374,14 +380,16 @@ export default function AdminDashboard() {
                   <h4 className="text-center font-bold border-b border-slate-300 pb-1.5 mb-2.5 text-xs">교재구매, 회원가입 신청서</h4>
                   <div className="flex flex-col gap-1.5 text-[9px] text-slate-600">
                     <p><strong>구매자 성명:</strong> {selectedDoc.buyerName}</p>
-                    <p><strong>자녀 성명(연령):</strong> {selectedDoc.childInfo || '-'}</p>
+                    <p><strong>자녀 성명:</strong> {selectedDoc.childInfo || '-'}</p>
+                    <p><strong>자녀 생년월일:</strong> {selectedDoc.childBirthdate || '-'}</p>
                     <p><strong>연락처:</strong> {selectedDoc.phoneNumber}</p>
                     <p><strong>배송 주소:</strong> {selectedDoc.address}</p>
                     <p><strong>배송 메모:</strong> {selectedDoc.deliveryMemo || '-'}</p>
                     <div className="border-t border-slate-200 my-1 pt-1">
                       <p><strong>신청 교재 1:</strong> {selectedDoc.book1Name || '-'}</p>
                       <p><strong>신청 교재 2:</strong> {selectedDoc.book2Name || '-'}</p>
-                      <p><strong>구독 구분:</strong> {selectedDoc.subscriptionType || '-'}</p>
+                      <p><strong>구독 구분:</strong> {selectedDoc.subscriptionType || '-'}{selectedDoc.subscriptionPrice ? ` (${Number(selectedDoc.subscriptionPrice).toLocaleString()}원)` : ''}</p>
+                      <p><strong>관리회원 구분:</strong> {selectedDoc.managementType || '-'}{selectedDoc.managementPrice ? ` (${Number(selectedDoc.managementPrice).toLocaleString()}원)` : ''}</p>
                     </div>
                     <div className="border-t border-slate-200 my-1 pt-1">
                       <p><strong>결제금액 (현금):</strong> {Number(selectedDoc.cashPayment || 0).toLocaleString()}원</p>

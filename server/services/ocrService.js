@@ -69,7 +69,8 @@ const ocrService = {
 
             [추출 및 정제 필드 리스트]:
             1. buyerName: 구매자 성명 (예: "곽두찬" 또는 "박두찬" 등 신청인/구매자 이름. "신청인 [이름]" 란 또는 구매자성명 칸 기재된 이름 최우선 추출)
-            2. childInfo: 자녀성명 및 연령 (예: "박동호 (7세)" 형태로 괄호와 나이 정보를 포함해 온전하게 정제)
+            2. childInfo: 자녀 성명만 (예: "박동호" 이름 부분만, 괄호·연령 제외)
+            2b. childBirthdate: 자녀 생년월일 (YYYY-MM-DD 포맷, 예: "2017-04-15". 신청서에 연령만 있고 생년월일 정보가 없으면 빈 문자열 "")
             3. phoneNumber: 전화번호 (예: 쪼개진 국번 "0105227" 과 "9774" 등을 정확히 결합해 "010-5227-9774" 형태로 정제)
             4. address: 배송지 주소 (예: "서울특별시 서초구 효령로 204" 형태로 앞뒤의 "배송메모"나 "구매자명" 등의 노이즈 글자를 완벽히 제외한 온전한 주소 정보만 추출)
             5. deliveryMemo: 배송메모 (예: "문 앞 보관", "경비실 위탁" 등)
@@ -77,19 +78,24 @@ const ocrService = {
             7. book1Price: 교재 1 금액 (예: "1600000" 등 숫자만)
             8. book2Name: 교재구입 교재명 2
             9. book2Price: 교재 2 금액
-            10. subscriptionType: 구독회원 상품구분
-            11. subscriptionPrice: 구독 상품 금액
-            12. cashPayment: 현금 결제액
-            13. cardPayment: 카드 결제액
-            14. cashReceiptNo: 현금영수증 증빙번호
-            15. sellerName: 판매자 소속 및 성명 (예: "본사" 또는 판매자이름)
-            16. sellerPhone: 판매자 연락처 (예: "010-5227-9774" 등 하단의 판매자 정보란에 적힌 전화번호)
-            17. applyDate: 신청 일자 (영수증이나 신청서 하단에 인쇄된 신청 날짜. 예: "2026년 5월 22일"을 "2026-05-22" 형식의 YYYY-MM-DD 포맷으로 변환)
+            10. subscriptionType: 구독회원 상품구분 (신청서의 "구독회원" 행의 "상품구분" 칸에 적힌 상품명. 예: "스마트", "프리미엄", "K-PLUS" 등. 손글씨라도 보이면 그대로 추출. 칸이 비어있으면 "")
+            11. subscriptionPrice: 구독 상품 금액 (구독회원 행의 "금액" 칸 숫자만. 예: "300000". 비어있으면 "")
+            12. managementType: 관리회원 상품구분 (신청서의 "관리회원" 행의 "상품구분" 칸. 손글씨 그대로 추출. 비어있으면 "")
+            13. managementPrice: 관리회원 금액 (관리회원 행의 "금액" 칸 숫자만. 비어있으면 "")
+            14. cashPayment: 현금 결제액 (결제구분 행의 "현 금" 옆 숫자만. 비어있으면 "0")
+            15. cardPayment: 카드 결제액 (결제구분 행의 "카 드" 옆 숫자만. 비어있으면 "0")
+            16. cashReceiptNo: 현금영수증 증빙번호
+            17. sellerName: 판매자 소속 및 성명 (예: "본사" 또는 판매자이름)
+            18. sellerPhone: 판매자 연락처 (예: "010-5227-9774" 등 하단의 판매자 정보란에 적힌 전화번호)
+            19. applyDate: 신청 일자 (영수증이나 신청서 하단에 인쇄된 신청 날짜. 예: "2026년 5월 22일"을 "2026-05-22" 형식의 YYYY-MM-DD 포맷으로 변환)
+
+            [중요]: "구독회원" 과 "관리회원" 은 신청서에 별도의 두 행으로 인쇄되어 있음. 각각 별개의 "상품구분"·"금액" 칸을 가지며 손글씨로 채워질 수 있음. 한 행만 채워질 수도, 둘 다 채워질 수도, 둘 다 비어있을 수도 있음. 빈 칸은 반드시 "" 로 응답.
 
             [출력 예시 포맷]:
             {
               "buyerName": "곽두찬",
-              "childInfo": "박동호 (7세)",
+              "childInfo": "박동호",
+              "childBirthdate": "2018-03-22",
               "phoneNumber": "010-5227-9774",
               "address": "서울특별시 서초구 효령로 204",
               "deliveryMemo": "",
@@ -97,8 +103,10 @@ const ocrService = {
               "book1Price": "1600000",
               "book2Name": "",
               "book2Price": "",
-              "subscriptionType": "",
-              "subscriptionPrice": "",
+              "subscriptionType": "스마트",
+              "subscriptionPrice": "300000",
+              "managementType": "",
+              "managementPrice": "",
               "cashPayment": "1600000",
               "cardPayment": "0",
               "cashReceiptNo": "",
@@ -175,7 +183,8 @@ const ocrService = {
 
     return {
       buyerName: "곽두찬",
-      childInfo: "박동호 (7세)",
+      childInfo: "박동호",
+      childBirthdate: "2018-03-22",
       phoneNumber: "010-5227-9774",
       address: "서울특별시 서초구 효령로 204",
       deliveryMemo: "경비실에 꼭 맡겨주세요.",
@@ -185,6 +194,8 @@ const ocrService = {
       book2Price: "",
       subscriptionType: "",
       subscriptionPrice: "",
+      managementType: "",
+      managementPrice: "",
       cashPayment: "1600000",
       cardPayment: "0",
       cashReceiptNo: "",

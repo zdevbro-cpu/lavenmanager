@@ -18,6 +18,7 @@ export default function App() {
   const [formData, setFormData] = useState({
     buyerName: '',
     childInfo: '',
+    childBirthdate: '',
     phoneNumber: '',
     address: '',
     deliveryMemo: '',
@@ -28,11 +29,13 @@ export default function App() {
     book2Price: '',
     subscriptionType: '',
     subscriptionPrice: '',
-    
+    managementType: '',
+    managementPrice: '',
+
     cashPayment: '',
     cardPayment: '',
     cashReceiptNo: '',
-    
+
     sellerName: '',
     sellerPhone: '',
     privacyConsent: true,
@@ -235,6 +238,7 @@ export default function App() {
     setFormData({
       buyerName: '',
       childInfo: '',
+      childBirthdate: '',
       phoneNumber: '',
       address: '',
       deliveryMemo: '',
@@ -244,6 +248,8 @@ export default function App() {
       book2Price: '',
       subscriptionType: '',
       subscriptionPrice: '',
+      managementType: '',
+      managementPrice: '',
       cashPayment: '',
       cardPayment: '',
       cashReceiptNo: '',
@@ -263,7 +269,7 @@ export default function App() {
 
     // 결제 금액 일치 검증: (모든 카드 영수증 합) + 현금결제액 === 신청 상품 합계
     const numericOrZero = (v) => Number(String(v || '').replace(/[^0-9]/g, '')) || 0;
-    const orderTotal = numericOrZero(formData.book1Price) + numericOrZero(formData.book2Price) + numericOrZero(formData.subscriptionPrice);
+    const orderTotal = numericOrZero(formData.book1Price) + numericOrZero(formData.book2Price) + numericOrZero(formData.subscriptionPrice) + numericOrZero(formData.managementPrice);
     const cardTotal = cardReceipts.reduce((acc, r) => acc + numericOrZero(r.ocrData?.amount), 0);
     const paymentTotal = cardTotal + numericOrZero(formData.cashPayment);
     if (orderTotal > 0 && paymentTotal !== orderTotal) {
@@ -441,30 +447,43 @@ export default function App() {
                       <div className="form-row">
                         <div className="form-group">
                           <label className="form-label">
-                            자녀성명(연령)
+                            자녀성명
                             {ocrFilledFields.includes('childInfo') && <span className="ocr-badge block">OCR</span>}
                           </label>
                           <input
                             type="text"
                             className={`form-input ${ocrFilledFields.includes('childInfo') ? 'ocr-filled' : ''}`}
-                            placeholder="홍길동 (8세)"
+                            placeholder="홍길동"
                             value={formData.childInfo}
                             onChange={(e) => handleInputChange('childInfo', e.target.value)}
                           />
                         </div>
                         <div className="form-group">
                           <label className="form-label">
-                            전화번호
-                            {ocrFilledFields.includes('phoneNumber') && <span className="ocr-badge block">OCR</span>}
+                            자녀생년월일
+                            {ocrFilledFields.includes('childBirthdate') && <span className="ocr-badge block">OCR</span>}
                           </label>
                           <input
-                            type="tel"
-                            className={`form-input ${ocrFilledFields.includes('phoneNumber') ? 'ocr-filled' : ''}`}
-                            placeholder="010-XXXX-XXXX"
-                            value={formData.phoneNumber}
-                            onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
+                            type="date"
+                            className={`form-input ${ocrFilledFields.includes('childBirthdate') ? 'ocr-filled' : ''}`}
+                            value={formData.childBirthdate}
+                            onChange={(e) => handleInputChange('childBirthdate', e.target.value)}
                           />
                         </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">
+                          전화번호
+                          {ocrFilledFields.includes('phoneNumber') && <span className="ocr-badge block">OCR</span>}
+                        </label>
+                        <input
+                          type="tel"
+                          className={`form-input ${ocrFilledFields.includes('phoneNumber') ? 'ocr-filled' : ''}`}
+                          placeholder="010-XXXX-XXXX"
+                          value={formData.phoneNumber}
+                          onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
+                        />
                       </div>
 
                       <div className="form-group">
@@ -585,6 +604,35 @@ export default function App() {
                             placeholder="0 (원)"
                             value={formatPrice(formData.subscriptionPrice)}
                             onChange={(e) => handleInputChange('subscriptionPrice', e.target.value.replace(/[^0-9]/g, ''))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-label">
+                            관리회원 구분
+                            {ocrFilledFields.includes('managementType') && <span className="ocr-badge block">OCR</span>}
+                          </label>
+                          <input
+                            type="text"
+                            className={`form-input ${ocrFilledFields.includes('managementType') ? 'ocr-filled' : ''}`}
+                            placeholder="상품구분"
+                            value={formData.managementType}
+                            onChange={(e) => handleInputChange('managementType', e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">
+                            관리회원 금액 (원)
+                            {ocrFilledFields.includes('managementPrice') && <span className="ocr-badge block">OCR</span>}
+                          </label>
+                          <input
+                            type="text"
+                            className={`form-input ${ocrFilledFields.includes('managementPrice') ? 'ocr-filled' : ''}`}
+                            placeholder="0 (원)"
+                            value={formatPrice(formData.managementPrice)}
+                            onChange={(e) => handleInputChange('managementPrice', e.target.value.replace(/[^0-9]/g, ''))}
                           />
                         </div>
                       </div>

@@ -124,12 +124,14 @@ app.post('/api/applications', async (req, res) => {
     // 3.1 pdf-lib 모듈을 사용하여 A5 신청서 PDF 생성 (서명 + 카드결제정보 합성)
     const applicationPdfBuffer = await pdfService.generateApplicationPdf(formData, signatureData, receiptOcrData);
 
-    // 3.1.5 신청서 + 원본사진 + 카드영수증 N장 + 현금영수증을 단일 통합 PDF로 묶기
+    // 3.1.5 신청서 + 원본사진 + 카드영수증 N장 + 현금영수증 + 라벤 약정서 자동 채움까지 단일 PDF
     const bundledPdfBuffer = await pdfService.buildBundledPdf(
       applicationPdfBuffer,
       photoBuffer,
       cardReceiptBuffers,
-      cashReceiptBuffer
+      cashReceiptBuffer,
+      formData,
+      receiptOcrData
     );
 
     // 3.2 구글 드라이브(또는 로컬 uploads)에 통합 PDF 한 개만 업로드 (개별 사진은 PDF 내부에 포함됨)
@@ -145,6 +147,7 @@ app.post('/api/applications', async (req, res) => {
     const dbRecord = await db.create({
       buyerName: formData.buyerName,
       childInfo: formData.childInfo || null,
+      childBirthdate: formData.childBirthdate || null,
       phoneNumber: formData.phoneNumber,
       address: formData.address,
       deliveryMemo: formData.deliveryMemo || null,
@@ -155,7 +158,9 @@ app.post('/api/applications', async (req, res) => {
       book2Price: formData.book2Price || null,
       subscriptionType: formData.subscriptionType || null,
       subscriptionPrice: formData.subscriptionPrice || null,
-      
+      managementType: formData.managementType || null,
+      managementPrice: formData.managementPrice || null,
+
       cashPayment: formData.cashPayment || '0',
       cardPayment: formData.cardPayment || '0',
       cashReceiptNo: formData.cashReceiptNo || null,

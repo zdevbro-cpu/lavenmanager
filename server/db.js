@@ -8,7 +8,8 @@ let memoryDb = [
   {
     id: 3024,
     buyerName: "이지혜",
-    childInfo: "박민우 (9세)",
+    childInfo: "박민우",
+    childBirthdate: "2017-04-15",
     phoneNumber: "010-3849-2938",
     address: "서울특별시 서초구 서초대로 320",
     deliveryMemo: "경비실에 꼭 맡겨주세요.",
@@ -33,7 +34,8 @@ let memoryDb = [
   {
     id: 3023,
     buyerName: "윤도현",
-    childInfo: "윤준서 (7세)",
+    childInfo: "윤준서",
+    childBirthdate: "2019-08-22",
     phoneNumber: "010-8482-1203",
     address: "경기도 성남시 분당구 정자일로 95",
     deliveryMemo: "택배함에 넣어주세요.",
