@@ -10,11 +10,13 @@
     "@prisma/client": "^5.14.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "googleapis": "^137.1.0",
     "lavenmanager": "file:..",
     "multer": "^1.4.5-lts.1",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "prisma": "^5.14.0"

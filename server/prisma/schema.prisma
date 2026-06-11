@@ -36,7 +36,8 @@ model Application {
   sellerPhone        String?  @map("seller_phone")        // 판매자 연락처
   
   gdrivePhotoFileId  String?  @map("gdrive_photo_file_id") // 구글드라이브 원본 사진 ID
-  gdrivePdfFileId    String?  @map("gdrive_pdf_file_id")   // 구글드라이브 완성 PDF ID
+  gdrivePdfFileId    String?  @map("gdrive_pdf_file_id")   // 구글드라이브 완성 PDF ID (회사용 통합)
+  gdriveCustomerPdfFileId String? @map("gdrive_customer_pdf_file_id") // 구글드라이브 고객용 신청서 PDF ID (A5)
   gdriveReceiptFileId String? @map("gdrive_receipt_file_id") // 구글드라이브 카드 영수증 ID
   receiptOcrData     Json?    @map("receipt_ocr_data")    // OCR 추출 raw 정보 ({ card: {...}, cash: {...} })
   privacyConsent     Boolean  @default(true) @map("privacy_consent") // 개인정보 수집 동의 여부 (Y/N)
@@ -44,4 +45,25 @@ model Application {
   createdAt          DateTime @default(now()) @map("created_at")
 
   @@map("applications")
+}
+
+// 독지사/LAS매장점주 카드결제 등록 로그 (A_카드 매출 일일 보고 양식에 맞춤)
+model CardSalesLog {
+  id              Int      @id @default(autoincrement())
+  type            String   @map("type")             // 'dok_teacher' (독서지도사) | 'las_owner' (점주계약금)
+  date            String   @map("date")             // 결제 일자 YYYY-MM-DD
+  catId           String?  @map("cat_id")           // CAT ID (단말기 번호)
+  businessUnit    String?  @map("business_unit")    // 사용 (사업부)
+  buyer           String   @map("buyer")            // 구매자
+  content         String?  @map("content")          // 내용 (점주계약금 / 독서지도사 — type에서 자동 매핑)
+  amount          String   @map("amount")           // 금액
+  cardNumber      String?  @map("card_number")      // 카드번호 (마스킹 그대로)
+  approvalNo      String?  @map("approval_no")      // 승인번호
+  registrantOrg   String?  @map("registrant_org")   // 입력자 소속
+  registrantName  String?  @map("registrant_name")  // 입력자 성명
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("card_sales_logs")
+  @@index([date])
+  @@index([type])
 }

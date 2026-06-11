@@ -11,7 +11,7 @@ const A4_H = 841.89;
 
 const pdfService = {
   // A5 단일 페이지 신청서 — 레퍼런스(0050_001) 좌측 양식과 동일한 구조로 작성
-  generateApplicationPdf: async (data, signatureBase64 = null, receiptOcrData = null) => {
+  generateApplicationPdf: async (data, signatureBase64 = null, receiptOcrData = null, variant = 'company') => {
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(fontkit);
 
@@ -26,7 +26,7 @@ const pdfService = {
     let y = H - 22;
 
     // ─── 타이틀 ────────────────────────────────────────────────
-    const title = '교재구매, 회원가입 신청서(회사용)';
+    const title = variant === 'customer' ? '교재구매, 회원가입 신청서(고객용)' : '교재구매, 회원가입 신청서(회사용)';
     const titleSize = 13;
     const titleW = font.widthOfTextAtSize(title, titleSize);
     page.drawText(title, { x: (W - titleW) / 2, y, size: titleSize, font, color: rgb(0, 0, 0) });
@@ -290,9 +290,6 @@ const pdfService = {
     // "서명"
     const signLabelX = sigGroupStartX + labelApplicantW + nameW + gapMid;
     text('서명', signLabelX, labelTop, { size: 9 });
-    // "(" 와 ")"
-    text('(', signLabelX + labelSignW, labelTop, { size: 11 });
-    text(')', sigBoxX + sigBoxW + 1, labelTop, { size: 11 });
 
     // 서명 이미지
     if (signatureBase64) {

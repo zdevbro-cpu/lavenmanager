@@ -114,6 +114,9 @@ app.post('/api/applications', async (req, res) => {
       return res.status(400).json({ error: '기본 구매자명, 연락처, 주소 정보는 필수로 채워야 합니다.' });
     }
 
+    // 전화번호는 어떤 형태로 들어와도 (010-XXXX-XXXX, 010 XXXX XXXX 등) DB에는 숫자만 저장
+    formData.phoneNumber = String(formData.phoneNumber || '').replace(/\D/g, '');
+
     console.log(`📝 신청서 접수 프로세스 시작. 구매자명: ${formData.buyerName}`);
 
     // 원본 사진, 카드 영수증 N장(최대 3), 현금영수증 이미지 버퍼 변환
@@ -121,8 +124,9 @@ app.post('/api/applications', async (req, res) => {
     const cardReceiptBuffers = cardReceiptList.map(decodeBase64Image).filter(Boolean);
     const cashReceiptBuffer = decodeBase64Image(cashReceiptPhotoData);
 
-    // 3.1 pdf-lib 모듈을 사용하여 A5 신청서 PDF 생성 (서명 + 카드결제정보 합성)
-    const applicationPdfBuffer = await pdfService.generateApplicationPdf(formData, signatureData, receiptOcrData);
+    // 3.1 pdf-lib 모듈을 사용하여 A5 신청서 PDF 생성 (서명 + 카드결제정보 합성) — 회사용 / 고객용
+    const applicationPdfBuffer = await pdfService.generateApplicationPdf(formData, signatureData, receiptOcrData, 'company');
+    const customerPdfBuffer    = await pdfService.generateApplicationPdf(formData, signatureData, receiptOcrData, 'customer');
 
     // 3.1.5 신청서 + 원본사진 + 카드영수증 N장 + 현금영수증 + 라벤 약정서 자동 채움까지 단일 PDF
     const bundledPdfBuffer = await pdfService.buildBundledPdf(
@@ -134,13 +138,14 @@ app.post('/api/applications', async (req, res) => {
       receiptOcrData
     );
 
-    // 3.2 구글 드라이브(또는 로컬 uploads)에 통합 PDF 한 개만 업로드 (개별 사진은 PDF 내부에 포함됨)
+    // 3.2 구글 드라이브(또는 로컬 uploads)에 통합 PDF + 고객용 A5 신청서 PDF 별도 업로드
     const driveUploadResult = await driveService.uploadApplicationFiles(
       formData.buyerName,
       formData.phoneNumber,
       bundledPdfBuffer,
       null,
-      null
+      null,
+      customerPdfBuffer
     );
 
     // 3.3 최종 정제 정보 데이터베이스(Google Cloud SQL 또는 인메모리)에 기록
@@ -170,6 +175,7 @@ app.post('/api/applications', async (req, res) => {
       
       gdrivePhotoFileId: driveUploadResult.photoFileId || null,
       gdrivePdfFileId: driveUploadResult.pdfFileId || null,
+      gdriveCustomerPdfFileId: driveUploadResult.customerPdfFileId || null,
       gdriveReceiptFileId: driveUploadResult.receiptFileId || null,
       receiptOcrData: receiptOcrData && (receiptOcrData.card || receiptOcrData.cash) ? receiptOcrData : null,
       privacyConsent: formData.privacyConsent !== false,
@@ -295,6 +301,116 @@ app.get('/api/auth/google/callback', async (req, res) => {
     `);
   } catch (err) {
     res.status(500).send("토큰을 획득하지 못했습니다: " + err.message);
+  }
+});
+
+// ─── 4.5 카드결제 등록 로그 API (독지사 / LAS매장점주) ───────────────
+const ExcelJS = require('exceljs');
+const CARD_TEMPLATE_PATH = path.join(__dirname, 'templates', 'card_sales_daily_report.xlsx');
+
+// POST /api/card-sales — 신규 등록 (누구나)
+app.post('/api/card-sales', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.type || (b.type !== 'dok_teacher' && b.type !== 'las_owner')) {
+      return res.status(400).json({ success: false, error: 'type은 dok_teacher 또는 las_owner여야 합니다.' });
+    }
+    if (!b.buyer || !b.amount) {
+      return res.status(400).json({ success: false, error: '구매자, 금액은 필수 항목입니다.' });
+    }
+    const content = b.type === 'dok_teacher' ? '독서지도사' : '점주보증금';
+    const record = await db.cardSales.create({
+      type: b.type,
+      date: b.date || new Date().toISOString().slice(0, 10),
+      catId: b.catId || null,
+      businessUnit: b.businessUnit || null,
+      buyer: b.buyer,
+      content: content,
+      amount: String(b.amount).replace(/[^0-9]/g, ''),
+      cardNumber: b.cardNumber || null,
+      approvalNo: b.approvalNo || null,
+      registrantOrg: b.registrantOrg || null,
+      registrantName: b.registrantName || null
+    });
+    console.log(`💳 카드결제 등록 (${content}) — ID ${record.id}, ${record.buyer}, ${record.amount}원`);
+    res.json({ success: true, data: record });
+  } catch (err) {
+    console.error('카드결제 등록 실패:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/card-sales — 조회 + 필터 (어드민 전용 — 클라이언트에서 Firebase Auth 보호)
+app.get('/api/card-sales', async (req, res) => {
+  try {
+    const filter = {
+      from: req.query.from || null,
+      to: req.query.to || null,
+      type: req.query.type || null,
+      businessUnit: req.query.businessUnit || null,
+      buyer: req.query.buyer || null,
+      registrantOrg: req.query.registrantOrg || null,
+      registrantName: req.query.registrantName || null
+    };
+    const rows = await db.cardSales.findMany(filter);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('카드결제 조회 실패:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/card-sales/export — 필터 결과를 양식에 채워 엑셀 다운로드 (어드민 전용)
+app.get('/api/card-sales/export', async (req, res) => {
+  try {
+    const filter = {
+      from: req.query.from || null,
+      to: req.query.to || null,
+      type: req.query.type || null,
+      businessUnit: req.query.businessUnit || null,
+      buyer: req.query.buyer || null,
+      registrantOrg: req.query.registrantOrg || null,
+      registrantName: req.query.registrantName || null
+    };
+    const rows = await db.cardSales.findMany(filter);
+
+    // exceljs로 양식 로드 — 셀 스타일/병합/너비/폰트 모두 보존
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(CARD_TEMPLATE_PATH);
+    const ws = wb.worksheets[0];
+
+    // 4행부터 데이터 채움 (양식의 4행에 미리 정의된 셀 스타일은 그대로 유지)
+    // 컬럼: A=번호, B=날짜, C=CAT ID, D=사업부, E=구매자, F=내용, G=금액, H=카드번호, I=승인번호, J=입력자
+    const DATA_FONT = { name: '맑은 고딕', size: 11, bold: false };
+    rows.forEach((r, i) => {
+      const rowNum = 4 + i;
+      const row = ws.getRow(rowNum);
+      row.getCell(1).value = i + 1;
+      row.getCell(2).value = r.date || '';
+      row.getCell(3).value = r.catId || '';
+      row.getCell(4).value = r.businessUnit || '';
+      row.getCell(5).value = r.buyer || '';
+      row.getCell(6).value = r.content || '';
+      row.getCell(7).value = r.amount ? Number(r.amount) : '';
+      row.getCell(8).value = r.cardNumber || '';
+      row.getCell(9).value = r.approvalNo || '';
+      // J(10) = 입력자 — "입력자소속/입력자성명" (사업부는 D컬럼에 별도 표시되므로 제외, 빈 값 제외)
+      row.getCell(10).value = [r.registrantOrg, r.registrantName].filter(Boolean).join('/');
+      // 모든 데이터 셀에 맑은 고딕 11pt Normal (bold 금지) 적용
+      for (let c = 1; c <= 10; c++) {
+        row.getCell(c).font = DATA_FONT;
+      }
+      row.commit();
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const filename = `카드매출_일일보고_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(Buffer.from(buf));
+  } catch (err) {
+    console.error('카드결제 엑셀 다운로드 실패:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

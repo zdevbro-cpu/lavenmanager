@@ -4,6 +4,16 @@ import { auth } from '../firebase';
 import * as XLSX from 'xlsx';
 import { RotateCw, Download, LogOut, ShieldAlert, FileSpreadsheet, FolderOpen, Eye, Trash2 } from 'lucide-react';
 import { API_BASE } from '../config';
+import CardSalesAdmin from './CardSalesAdmin';
+
+// 전화번호 숫자만 → 010-0000-0000 표시 (DB에는 숫자만 저장됨)
+const formatPhoneNumber = (raw) => {
+  const d = String(raw || '').replace(/\D/g, '').slice(0, 11);
+  if (d.length < 4) return d;
+  if (d.length < 7) return `${d.slice(0,3)}-${d.slice(3)}`;
+  if (d.length <= 10) return `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
+  return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+};
 
 export default function AdminDashboard() {
   const [user, setUser] = useState(null);
@@ -17,13 +27,15 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState({
     totalToday: 0,
-    ocrRate: 91.2,
     gdriveBackup: 0,
     smsSent: 0
   });
 
   // 드라이브 PDF 팝업 상태
   const [selectedDoc, setSelectedDoc] = useState(null);
+
+  // 상단 영역 토글: 'application' (기존 교재구매) | 'card-sales' (신규 카드결제 관리)
+  const [adminSection, setAdminSection] = useState('application');
 
   useEffect(() => {
     // 파이어베이스 인증 상태 수집
@@ -44,10 +56,9 @@ export default function AdminDashboard() {
       if (json.success) {
         setApplications(json.data);
         
-        // 가상 실시간 통계 계산
+        // 실측 통계만 사용 (mock 데이터 제거)
         setStats({
           totalToday: json.data.length,
-          ocrRate: json.data.length > 0 ? 92.5 : 0,
           gdriveBackup: json.data.filter(item => item.gdrivePdfFileId).length,
           smsSent: json.data.length
         });
@@ -98,7 +109,7 @@ export default function AdminDashboard() {
       "구매자명 (수령인)": item.buyerName,
       "자녀 성명": item.childInfo || '',
       "자녀 생년월일": item.childBirthdate || '',
-      "연락처": item.phoneNumber,
+      "연락처": formatPhoneNumber(item.phoneNumber),
       "우편배송지 주소": item.address,
       "배송 요청사항": item.deliveryMemo || '문 앞 보관',
       "교재명 1": item.book1Name || '',
@@ -218,6 +229,27 @@ export default function AdminDashboard() {
   // 메인 대시보드 화면
   return (
     <div className="flex flex-col gap-5 w-full h-full overflow-y-auto no-scrollbar pb-8">
+      {/* 상단 영역 토글 — 교재구매 신청 관리 ↔ 카드결제 관리 */}
+      <div className="flex gap-2 flex-shrink-0">
+        <button
+          onClick={() => setAdminSection('application')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${adminSection === 'application' ? 'bg-accent-indigo text-white' : 'bg-slate-800 text-text-secondary hover:bg-slate-700'}`}
+        >
+          📝 교재구매 신청 관리
+        </button>
+        <button
+          onClick={() => setAdminSection('card-sales')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${adminSection === 'card-sales' ? 'bg-accent-indigo text-white' : 'bg-slate-800 text-text-secondary hover:bg-slate-700'}`}
+        >
+          💳 카드결제 관리
+        </button>
+        <div className="flex-1" />
+        <button onClick={handleLogout} className="px-3 py-1.5 bg-slate-800 hover:bg-red-900 text-xs text-text-secondary hover:text-white rounded-lg">로그아웃</button>
+      </div>
+
+      {adminSection === 'card-sales' && <CardSalesAdmin />}
+
+      {adminSection === 'application' && <>
       {/* 액션 헤더 */}
       <div className="flex justify-between items-center flex-shrink-0">
         <div>
@@ -259,7 +291,7 @@ export default function AdminDashboard() {
 
         <div className="bg-bg-secondary border border-border-color rounded-xl p-4 shadow-lg">
           <div className="text-xs text-text-secondary">무료 Google OCR 분석율</div>
-          <div className="text-2xl font-bold text-amber-500 mt-1">{stats.ocrRate} %</div>
+          <div className="text-2xl font-bold text-amber-500 mt-1">—</div>
           <div className="text-[10px] text-amber-400 mt-1 font-semibold">사용자 보정 100% 진행</div>
         </div>
 
@@ -309,7 +341,7 @@ export default function AdminDashboard() {
                   <tr key={item.id} className="border-b border-border-color hover:bg-white/2 transition-colors">
                     <td className="p-3 pl-4 text-slate-400 font-mono">#{item.id}</td>
                     <td className="p-3 font-semibold text-white">{item.buyerName}</td>
-                    <td className="p-3">{item.phoneNumber}</td>
+                    <td className="p-3">{formatPhoneNumber(item.phoneNumber)}</td>
                     <td className="p-3 max-w-[200px] truncate" title={item.address}>{item.address}</td>
                     <td className="p-3 text-slate-400">
                       {item.childInfo || '-'}
@@ -340,10 +372,23 @@ export default function AdminDashboard() {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="w-7 h-7 bg-slate-800 hover:bg-accent-indigo border border-border-color rounded-md flex items-center justify-center text-white transition-colors"
-                          title="구글 드라이브 PDF 열기"
+                          title="회사용 신청서 PDF 열기"
                         >
                           <FolderOpen className="w-3.5 h-3.5" />
                         </a>
+                        {item.gdriveCustomerPdfFileId && (
+                          <a
+                            href={!item.gdriveCustomerPdfFileId.startsWith('gdrive_')
+                              ? `https://drive.google.com/file/d/${item.gdriveCustomerPdfFileId}/view`
+                              : `${API_BASE}/uploads/신청서(고객용)_${item.buyerName}_${item.phoneNumber.replace(/-/g,'')}.pdf`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-7 h-7 bg-slate-800 hover:bg-emerald-600 border border-border-color rounded-md flex items-center justify-center text-emerald-300 hover:text-white transition-colors"
+                            title="고객용 신청서 PDF 열기"
+                          >
+                            <FolderOpen className="w-3.5 h-3.5" />
+                          </a>
+                        )}
                         <button
                           onClick={() => handleDelete(item)}
                           className="w-7 h-7 bg-slate-800 hover:bg-red-600 border border-border-color rounded-md flex items-center justify-center text-red-400 hover:text-white transition-colors"
@@ -382,7 +427,7 @@ export default function AdminDashboard() {
                     <p><strong>구매자 성명:</strong> {selectedDoc.buyerName}</p>
                     <p><strong>자녀 성명:</strong> {selectedDoc.childInfo || '-'}</p>
                     <p><strong>자녀 생년월일:</strong> {selectedDoc.childBirthdate || '-'}</p>
-                    <p><strong>연락처:</strong> {selectedDoc.phoneNumber}</p>
+                    <p><strong>연락처:</strong> {formatPhoneNumber(selectedDoc.phoneNumber)}</p>
                     <p><strong>배송 주소:</strong> {selectedDoc.address}</p>
                     <p><strong>배송 메모:</strong> {selectedDoc.deliveryMemo || '-'}</p>
                     <div className="border-t border-slate-200 my-1 pt-1">
@@ -416,7 +461,7 @@ export default function AdminDashboard() {
                 <div className="bg-bg-card p-3 rounded-xl border border-border-color text-xs flex flex-col gap-2 font-mono">
                   <div>📁 <strong>저장 경로:</strong> Google Drive / 교재구매_신청서 / 2026-05 /</div>
                   <div>📄 <strong>파일 이름:</strong> <span className="text-accent-indigo font-semibold">신청서_{selectedDoc.buyerName}_{selectedDoc.phoneNumber.replace(/-/g,'')}.pdf</span></div>
-                  <div>🔑 <strong>구글 드라이브 ID:</strong> {selectedDoc.gdrivePdfFileId || 'gdrive_mock_key_92931'}</div>
+                  <div>🔑 <strong>구글 드라이브 ID:</strong> {selectedDoc.gdrivePdfFileId || '-'}</div>
                 </div>
 
                 {/* 카드 영수증 OCR — 배열(다중) / 단일 객체(구 버전) 양쪽 호환 */}
@@ -469,6 +514,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }

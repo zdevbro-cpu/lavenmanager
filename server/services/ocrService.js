@@ -8,8 +8,8 @@ const apiKey = process.env.GEMINI_API_KEY;
 if (apiKey) {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    console.log("👁️ Google Gemini 2.0 Flash 멀티모달 OCR 클라이언트가 활성화되었습니다.");
+    geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    console.log("👁️ Google Gemini 2.5 Flash 멀티모달 OCR 클라이언트가 활성화되었습니다.");
   } catch (error) {
     console.error("❌ Gemini API 초기화 실패:", error.message);
   }
@@ -19,17 +19,17 @@ if (apiKey) {
 
 const ocrService = {
   analyzeImage: async (imageBuffer, type = 'application') => {
-    // 1. Google Gemini 2.0 Flash 멀티모달 비주얼 OCR 가동
+    // 1. Google Gemini 2.5 Flash 멀티모달 비주얼 OCR 가동
     if (geminiModel && imageBuffer) {
       try {
-        console.log(`🤖 Gemini 2.0 Flash 모델로 이미지 분석을 시작합니다. (Type: ${type})`);
+        console.log(`🤖 Gemini 2.5 Flash 모델로 이미지 분석을 시작합니다. (Type: ${type})`);
         const base64Image = imageBuffer.toString('base64');
         
         let prompt = '';
         if (type === 'sales') {
           // las-mgmt 프로젝트의 고밀도 카드 영수증 OCR 프롬프트 이식
           prompt = `
-            아래는 한국 신용카드 결제 영수증 이미지입니다. 다음 6가지 핵심 항목을 정확히 찾아서 JSON으로만 응답해줘. 설명이나 주석 없이 오직 JSON만 출력해.
+            아래는 한국 신용카드 결제 영수증 이미지입니다. 다음 7가지 핵심 항목을 정확히 찾아서 JSON으로만 응답해줘. 설명이나 주석 없이 오직 JSON만 출력해.
 
             1. amount: 결제금액 (숫자만, 콤마 제외. 예: "1600000")
             2. issuer: 카드사명 (영수증에 적힌 카드 브랜드명. 예: "KB국민카드", "신한카드", "현대카드", "삼성카드")
@@ -37,9 +37,10 @@ const ocrService = {
             4. terminalNo: 단말기번호 (영수증의 "단말기번호", "TID", 혹은 "CATID" 항목 옆의 숫자)
             5. serialNo: 일련번호 (영수증의 "일련번호", "S/N" 항목 옆의 숫자)
             6. cardNumber: 카드번호 (필수 추출 필드 - "카드번호", "NO.", "번호" 옆에 위치. 1234-****-****-5678 처럼 마스킹된 부분까지 영수증에 보이는 그대로 텍스트 전체를 정확히 추출)
+            7. transactionDate: 결제 일자 (영수증의 "거래일시", "결제일시", "승인일자" 등 옆 날짜. YYYY-MM-DD 형식으로 변환. 예: "2026/05/24 15:30" → "2026-05-24". 시간은 제외하고 날짜만)
 
             항목을 찾을 수 없는 경우 빈 문자열("")로 응답해.
-            출력 예시: {"amount":"1600000","issuer":"KB국민카드","approvalNo":"30014532","terminalNo":"3295581001","serialNo":"0558","cardNumber":"5570-42**-****-7047"}
+            출력 예시: {"amount":"1600000","issuer":"KB국민카드","approvalNo":"30014532","terminalNo":"3295581001","serialNo":"0558","cardNumber":"5570-42**-****-7047","transactionDate":"2026-05-24"}
           `;
         } else if (type === 'cash_receipt') {
           // 한국 현금영수증 OCR 프롬프트
@@ -139,70 +140,16 @@ const ocrService = {
         }
 
         const data = JSON.parse(jsonText);
-        
-        // 최종 정합성 보완 (오류 방지 폴백) - 신청서 타입인 경우만
-        if (type === 'application') {
-          if (!data.buyerName || data.buyerName === '전화번호') data.buyerName = "곽두찬";
-          if (!data.phoneNumber) data.phoneNumber = "010-5227-9774";
-          if (!data.address || data.address.includes('배송메모')) data.address = "서울특별시 서초구 효령로 204";
-          if (!data.applyDate) data.applyDate = "2026-05-22";
-        }
-
+        // Gemini 응답을 그대로 반환 (mock 값으로 임의 보완하지 않음)
         return data;
       } catch (error) {
-        console.error(`❌ Gemini Vision API [${type}] 호출 오류. 로컬 폴백 엔진을 가동합니다:`, error.message);
+        console.error(`❌ Gemini Vision API [${type}] 호출 오류:`, error.message);
       }
     }
 
-    // 2. 구글 클라우드 계정 및 Gemini 미연동 시 로컬 폴백 가상 매핑 데이터 리턴
-    console.log(`ℹ️ [Fallback Mode] Gemini API 미동작 상태로 [${type}] 로컬 가상 데이터를 매핑합니다.`);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    if (type === 'sales') {
-      return {
-        amount: "1,600,000".replace(/,/g, ''),
-        issuer: "KB국민카드",
-        approvalNo: "30014532",
-        terminalNo: "3295581001",
-        serialNo: "0558",
-        cardNumber: "5570-42**-****-7047"
-      };
-    }
-
-    if (type === 'cash_receipt') {
-      return {
-        amount: "1600000",
-        approvalNo: "20240524001",
-        transactionDate: "2026-05-24 15:30:00",
-        identifierType: "휴대폰",
-        identifierNo: "010-5227-9774",
-        merchantName: "에이멘에이(주)",
-        merchantBizNo: "123-45-67890"
-      };
-    }
-
-    return {
-      buyerName: "곽두찬",
-      childInfo: "박동호",
-      childBirthdate: "2018-03-22",
-      phoneNumber: "010-5227-9774",
-      address: "서울특별시 서초구 효령로 204",
-      deliveryMemo: "경비실에 꼭 맡겨주세요.",
-      book1Name: "K2",
-      book1Price: "1600000",
-      book2Name: "",
-      book2Price: "",
-      subscriptionType: "",
-      subscriptionPrice: "",
-      managementType: "",
-      managementPrice: "",
-      cashPayment: "1600000",
-      cardPayment: "0",
-      cashReceiptNo: "",
-      sellerName: "본사",
-      sellerPhone: "010-5227-9774",
-      applyDate: "2026-05-22"
-    };
+    // 2. Gemini 미동작/실패 시 빈 객체 반환 — 사용자가 직접 입력하도록 유도 (mock 데이터 채우지 않음)
+    console.log(`ℹ️ [No-OCR Mode] Gemini API 미동작 상태로 [${type}] 빈 객체 반환합니다. 사용자가 수기 입력 필요.`);
+    return {};
   }
 };
 

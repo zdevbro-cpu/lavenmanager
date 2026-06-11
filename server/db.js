@@ -3,61 +3,8 @@ const { PrismaClient } = require('@prisma/client');
 
 let prisma = null;
 let useMemoryDb = false;
-let memoryDb = [
-  // Preset test data matching the paper form styles
-  {
-    id: 3024,
-    buyerName: "이지혜",
-    childInfo: "박민우",
-    childBirthdate: "2017-04-15",
-    phoneNumber: "010-3849-2938",
-    address: "서울특별시 서초구 서초대로 320",
-    deliveryMemo: "경비실에 꼭 맡겨주세요.",
-    book1Name: "초등 수학 개념 완성 A코스",
-    book1Price: "35,000",
-    book2Name: null,
-    book2Price: null,
-    subscriptionType: "월간 독서 클럽",
-    subscriptionPrice: "15,000",
-    cashPayment: "0",
-    cardPayment: "50,000",
-    cashReceiptNo: null,
-    sellerName: "강남지사 최민지",
-    sellerPhone: "010-7766-5544",
-    gdrivePhotoFileId: "gdrive_photo_mock_1",
-    gdrivePdfFileId: "gdrive_pdf_mock_1",
-    receiptOcrData: null,
-    privacyConsent: true,
-    applyDate: "2026-05-23",
-    createdAt: new Date()
-  },
-  {
-    id: 3023,
-    buyerName: "윤도현",
-    childInfo: "윤준서",
-    childBirthdate: "2019-08-22",
-    phoneNumber: "010-8482-1203",
-    address: "경기도 성남시 분당구 정자일로 95",
-    deliveryMemo: "택배함에 넣어주세요.",
-    book1Name: "중학 기초 영어 핵심",
-    book1Price: "30,000",
-    book2Name: "수학개념 완성",
-    book2Price: "30,000",
-    subscriptionType: null,
-    subscriptionPrice: null,
-    cashPayment: "60,000",
-    cardPayment: "0",
-    cashReceiptNo: "010-8482-1203",
-    sellerName: "분당지사 이민호",
-    sellerPhone: "010-9988-7766",
-    gdrivePhotoFileId: "gdrive_photo_mock_2",
-    gdrivePdfFileId: "gdrive_pdf_mock_2",
-    receiptOcrData: null,
-    privacyConsent: true,
-    applyDate: "2026-05-23",
-    createdAt: new Date()
-  }
-];
+// 인메모리 폴백용 빈 배열 (mock preset 데이터 제거 — DATABASE_URL 정상 동작 시 사용되지 않음)
+let memoryDb = [];
 
 if (!process.env.DATABASE_URL) {
   console.warn("⚠️ [DATABASE_URL] 환경 변수가 설정되지 않았습니다. 인메모리(Memory) DB 모드로 가동합니다.");
@@ -115,6 +62,30 @@ const db = {
       return removed;
     }
     return await prisma.application.delete({ where: { id: Number(id) } });
+  },
+
+  // ─── 카드결제 등록 로그 (CardSalesLog) ───────────────────────
+  cardSales: {
+    create: async (data) => {
+      if (useMemoryDb) throw new Error('인메모리 모드에서는 카드결제 로그를 사용할 수 없습니다.');
+      return await prisma.cardSalesLog.create({ data });
+    },
+    findMany: async (filter = {}) => {
+      if (useMemoryDb) return [];
+      // filter: { from, to, type, businessUnit, buyer, registrantOrg, registrantName }
+      const where = {};
+      if (filter.type) where.type = filter.type;
+      if (filter.from || filter.to) {
+        where.date = {};
+        if (filter.from) where.date.gte = filter.from;
+        if (filter.to) where.date.lte = filter.to;
+      }
+      if (filter.businessUnit) where.businessUnit = { contains: filter.businessUnit };
+      if (filter.buyer) where.buyer = { contains: filter.buyer };
+      if (filter.registrantOrg) where.registrantOrg = { contains: filter.registrantOrg };
+      if (filter.registrantName) where.registrantName = { contains: filter.registrantName };
+      return await prisma.cardSalesLog.findMany({ where, orderBy: [{ date: 'asc' }, { id: 'asc' }] });
+    }
   }
 };
 

@@ -43,10 +43,11 @@ else if (fs.existsSync(keyPath)) {
 }
 
 const driveService = {
-  uploadApplicationFiles: async (buyerName, phoneNumber, pdfBuffer, photoBuffer = null, receiptBuffer = null) => {
+  uploadApplicationFiles: async (buyerName, phoneNumber, pdfBuffer, photoBuffer = null, receiptBuffer = null, customerPdfBuffer = null) => {
     const cleanPhone = phoneNumber.replace(/-/g, '');
     const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '') + '_' + new Date().toTimeString().slice(0, 8).replace(/:/g, '');
     const pdfFileName = `신청서_${buyerName}_${cleanPhone}_${timestamp}.pdf`;
+    const customerPdfFileName = `신청서(고객용)_${buyerName}_${cleanPhone}_${timestamp}.pdf`;
     const photoFileName = `원본사진_${buyerName}_${cleanPhone}_${timestamp}.jpg`;
     const receiptFileName = `카드영수증_${buyerName}_${cleanPhone}_${timestamp}.jpg`;
 
@@ -103,14 +104,29 @@ const driveService = {
             receiptFileId = receiptUpload.data.id;
           }
 
+          let customerPdfFileId = null;
+          if (customerPdfBuffer) {
+            console.log(`📤 [OAuth2 User Mode] 드라이브에 고객용 신청서 PDF 업로드 중: ${customerPdfFileName}`);
+            const cMeta = { name: customerPdfFileName, parents: targetParentId ? [targetParentId] : [] };
+            const cMedia = { mimeType: 'application/pdf', body: require('stream').Readable.from(customerPdfBuffer) };
+            const cUpload = await driveClient.files.create({
+              resource: cMeta,
+              media: cMedia,
+              fields: 'id',
+              supportsAllDrives: true
+            });
+            customerPdfFileId = cUpload.data.id;
+          }
+
           console.log(`🎉 [OAuth2 User Mode] 구글 드라이브 무제한 업로드 완료! PDF ID: ${pdfUpload.data.id}`);
           return {
             pdfFileId: pdfUpload.data.id,
             pdfViewUrl: pdfUpload.data.webViewLink,
             photoFileId: photoFileId,
-            receiptFileId: receiptFileId
+            receiptFileId: receiptFileId,
+            customerPdfFileId: customerPdfFileId
           };
-        } 
+        }
         
         // [Service Account Mode] 쿼타 차단 해소 우회 시퀀스 (동의 문제로 인해 로컬 폴백을 동반)
         else {
@@ -208,12 +224,18 @@ const driveService = {
       const localReceiptPath = path.join(uploadDir, receiptFileName);
       fs.writeFileSync(localReceiptPath, receiptBuffer);
     }
+    if (customerPdfBuffer) {
+      const localCustomerPath = path.join(uploadDir, customerPdfFileName);
+      fs.writeFileSync(localCustomerPath, customerPdfBuffer);
+      console.log(`💾 로컬 고객용 신청서 PDF 보관 완료: ${localCustomerPath}`);
+    }
 
     return {
       pdfFileId: `gdrive_file_id_${Math.random().toString(36).substring(2, 12)}`,
       pdfViewUrl: `http://localhost:3001/uploads/${pdfFileName}`,
       photoFileId: photoBuffer ? `gdrive_photo_id_${Math.random().toString(36).substring(2, 12)}` : null,
-      receiptFileId: receiptBuffer ? `gdrive_receipt_id_${Math.random().toString(36).substring(2, 12)}` : null
+      receiptFileId: receiptBuffer ? `gdrive_receipt_id_${Math.random().toString(36).substring(2, 12)}` : null,
+      customerPdfFileId: customerPdfBuffer ? `gdrive_customer_id_${Math.random().toString(36).substring(2, 12)}` : null
     };
   }
 };

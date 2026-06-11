@@ -3,6 +3,8 @@ import { Camera, CheckCircle2, Trash2, Building, ArrowRight, Sparkles } from 'lu
 import SignaturePad from './components/SignaturePad';
 import AdminDashboard from './components/AdminDashboard';
 import { API_BASE } from './config';
+import LandingPage from './components/LandingPage';
+import CardSalesForm from './components/CardSalesForm';
 
 // 3자리 콤마 포맷팅 헬퍼 함수
 const formatPrice = (value) => {
@@ -11,8 +13,17 @@ const formatPrice = (value) => {
   return clean.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 };
 
+// 전화번호 숫자만 → 010-0000-0000 표시 포맷 (DB에는 숫자만 저장)
+const formatPhoneNumber = (raw) => {
+  const d = String(raw || '').replace(/\D/g, '').slice(0, 11);
+  if (d.length < 4) return d;
+  if (d.length < 7) return `${d.slice(0,3)}-${d.slice(3)}`;
+  if (d.length <= 10) return `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
+  return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+};
+
 export default function App() {
-  const [activeView, setActiveView] = useState('user'); // 'user' (모바일 신청서) or 'admin' (관리자 대시보드)
+  const [activeView, setActiveView] = useState('landing'); // 'landing' | 'card-sales' | 'application' | 'admin'
 
   // 신청서 입력 상태 정의
   const [formData, setFormData] = useState({
@@ -349,8 +360,8 @@ export default function App() {
         </div>
         <div className="nav-tabs">
           <button
-            onClick={() => setActiveView('user')}
-            className={`tab-btn ${activeView === 'user' ? 'active' : ''}`}
+            onClick={() => setActiveView('landing')}
+            className={`tab-btn ${activeView !== 'admin' ? 'active' : ''}`}
           >
             신청자 모드 (모바일)
           </button>
@@ -369,12 +380,33 @@ export default function App() {
         {/* 중앙 인터랙티브 뷰포트 스크린 영역 */}
         <div className="screen-container">
           
-          {/* 1. 신청자 스마트 모바일 웹뷰 */}
-          {activeView === 'user' && (
+          {/* 0. 랜딩 (분기 선택) */}
+          {activeView === 'landing' && (
+            <div className="mobile-mockup">
+              <div className="webview">
+                <LandingPage onSelect={(k) => setActiveView(k)} />
+              </div>
+            </div>
+          )}
+
+          {/* 0b. 카드결제등록 (종류 선택 후 입력) */}
+          {activeView === 'card-sales' && (
+            <div className="mobile-mockup">
+              <div className="webview">
+                <CardSalesForm onBack={() => setActiveView('landing')} />
+              </div>
+            </div>
+          )}
+
+          {/* 1. 신청자 스마트 모바일 웹뷰 (교재구매 회원신청) */}
+          {activeView === 'application' && (
             <div className="mobile-mockup">
               <div className="webview">
                 {submissionState === 'idle' && (
                   <div className="flex flex-col gap-4">
+                    <div className="flex justify-start">
+                      <button onClick={() => setActiveView('landing')} className="text-xs text-text-secondary hover:text-white">‹ 처음으로</button>
+                    </div>
                     <div className="webview-title flex items-center justify-center gap-3">
                       <img src="/logo.png" alt="에이멘에이 로고" className="w-12 h-12 object-contain flex-shrink-0" />
                       <div className="text-left">
@@ -464,10 +496,19 @@ export default function App() {
                             {ocrFilledFields.includes('childBirthdate') && <span className="ocr-badge block">OCR</span>}
                           </label>
                           <input
-                            type="date"
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={10}
+                            placeholder="YYYY-MM-DD"
                             className={`form-input ${ocrFilledFields.includes('childBirthdate') ? 'ocr-filled' : ''}`}
                             value={formData.childBirthdate}
-                            onChange={(e) => handleInputChange('childBirthdate', e.target.value)}
+                            onChange={(e) => {
+                              const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
+                              let masked = digits;
+                              if (digits.length > 6) masked = `${digits.slice(0,4)}-${digits.slice(4,6)}-${digits.slice(6)}`;
+                              else if (digits.length > 4) masked = `${digits.slice(0,4)}-${digits.slice(4)}`;
+                              handleInputChange('childBirthdate', masked);
+                            }}
                           />
                         </div>
                       </div>
@@ -479,10 +520,12 @@ export default function App() {
                         </label>
                         <input
                           type="tel"
+                          inputMode="numeric"
+                          maxLength={13}
                           className={`form-input ${ocrFilledFields.includes('phoneNumber') ? 'ocr-filled' : ''}`}
                           placeholder="010-XXXX-XXXX"
-                          value={formData.phoneNumber}
-                          onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
+                          value={formatPhoneNumber(formData.phoneNumber)}
+                          onChange={(e) => handleInputChange('phoneNumber', e.target.value.replace(/\D/g, '').slice(0, 11))}
                         />
                       </div>
 
