@@ -285,7 +285,7 @@ export default function CardSalesAdmin() {
           <div className="text-xs text-text-secondary">총 <strong className="text-white">{rows.length}</strong>건</div>
           {loading && <div className="text-xs text-amber-400">로딩 중...</div>}
         </div>
-        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto custom-scrollbar">
           <table className="w-full text-xs">
             <thead className="bg-slate-800 text-text-secondary sticky top-0">
               <tr>
