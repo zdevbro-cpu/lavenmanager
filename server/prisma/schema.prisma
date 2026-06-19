@@ -57,13 +57,35 @@ model CardSalesLog {
   buyer           String   @map("buyer")            // 구매자
   content         String?  @map("content")          // 내용 (점주계약금 / 독서지도사 — type에서 자동 매핑)
   amount          String   @map("amount")           // 금액
+  cardIssuer      String?  @map("card_issuer")      // 카드사 (예: KB국민카드, 신한카드)
   cardNumber      String?  @map("card_number")      // 카드번호 (마스킹 그대로)
   approvalNo      String?  @map("approval_no")      // 승인번호
   registrantOrg   String?  @map("registrant_org")   // 입력자 소속
   registrantName  String?  @map("registrant_name")  // 입력자 성명
+  transactionGroupId String? @map("transaction_group_id") // 분할결제 그룹 UUID (같은 거래의 여러 카드 영수증을 묶음)
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("card_sales_logs")
   @@index([date])
   @@index([type])
+  @@index([transactionGroupId])
+}
+
+// 카드결제 분류 마스터 (어드민이 추가/삭제 가능)
+model CardSalesCategory {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique @map("key")           // 영문 식별자 — type 컬럼과 매핑 (예: dok_teacher)
+  label     String   @map("label")                  // 한글 표시명 — content 컬럼과 매핑 (예: 독서지도사)
+  maxSplit  Int      @default(10) @map("max_split") // 분할결제 최대 매수
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("card_sales_categories")
+}
+
+// 시스템 설정 (key-value) — 일일 이메일 수신자, 기타 운영 파라미터
+model SystemConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("system_config")
 }

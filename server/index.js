@@ -306,27 +306,181 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // ─── 4.5 카드결제 등록 로그 API (독지사 / LAS매장점주) ───────────────
 const ExcelJS = require('exceljs');
+
+// 분할결제 그룹 정보 계산 — 같은 transactionGroupId 행을 묶어 각 행의 위치(N/M)를 결정
+// 사용: rows.forEach(r => { const split = getSplitInfo(r, groupMap); ... })
+function buildSplitMap(rows) {
+  const map = new Map();
+  rows.forEach(r => {
+    if (!r.transactionGroupId) return;
+    if (!map.has(r.transactionGroupId)) map.set(r.transactionGroupId, []);
+    map.get(r.transactionGroupId).push(r);
+  });
+  map.forEach(arr => arr.sort((a, b) => (a.id || 0) - (b.id || 0)));
+  return map;
+}
+function getSplitLabel(r, splitMap) {
+  if (!r.transactionGroupId) return '';
+  const arr = splitMap.get(r.transactionGroupId);
+  if (!arr || arr.length <= 1) return '';
+  const idx = arr.findIndex(x => x.id === r.id);
+  return ` (분할 ${idx + 1}/${arr.length})`;
+}
+
+// 양식의 일반 행/마지막 행 셀 스타일을 캐싱하고, 데이터 N개에 맞춰 행을 채움 + 외곽선 동적 적용
+// 빈 행(데이터 개수 이후~양식 기본 끝)은 외곽선/번호 제거
+function fillSheetWithDynamicBorder(ws, rows, splitMap, columnCount, formStartRow, formLastRow, fillCell) {
+  // 양식 일반 행 스타일 (formStartRow)
+  const normalRow = ws.getRow(formStartRow);
+  const normalBorders = [];
+  for (let c = 1; c <= columnCount; c++) normalBorders.push({ ...normalRow.getCell(c).border });
+  // 양식 마지막 행 스타일 (formLastRow) — bottom medium
+  const lastRow = ws.getRow(formLastRow);
+  const lastBorders = [];
+  for (let c = 1; c <= columnCount; c++) lastBorders.push({ ...lastRow.getCell(c).border });
+
+  const DATA_FONT = { name: '맑은 고딕', size: 11, bold: false };
+  const lastDataRowNum = formStartRow + rows.length - 1;
+
+  rows.forEach((r, i) => {
+    const rowNum = formStartRow + i;
+    const row = ws.getRow(rowNum);
+    fillCell(row, r, i, splitMap);
+    const isLast = (rowNum === lastDataRowNum);
+    for (let c = 1; c <= columnCount; c++) {
+      row.getCell(c).border = isLast ? { ...lastBorders[c - 1] } : { ...normalBorders[c - 1] };
+      row.getCell(c).font = DATA_FONT;
+    }
+    row.commit();
+  });
+
+  // 데이터 N개가 양식 기본 행 수 이하이면 4+N ~ formLastRow 행을 비우고 외곽선 제거
+  for (let rn = lastDataRowNum + 1; rn <= formLastRow; rn++) {
+    const row = ws.getRow(rn);
+    for (let c = 1; c <= columnCount; c++) {
+      row.getCell(c).value = null;
+      row.getCell(c).border = {};
+    }
+    row.commit();
+  }
+}
 const CARD_TEMPLATE_PATH = path.join(__dirname, 'templates', 'card_sales_daily_report.xlsx');
 
+// ─── 카드결제 분류 마스터 API (어드민 관리) ───────────────────
+app.get('/api/card-sales-categories', async (req, res) => {
+  try {
+    const list = await db.cardSalesCategories.findAll();
+    res.json({ success: true, data: list });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/card-sales-categories', async (req, res) => {
+  try {
+    const { label, maxSplit, sortOrder } = req.body || {};
+    if (!label || typeof label !== 'string') {
+      return res.status(400).json({ success: false, error: '분류 이름(label)은 필수입니다.' });
+    }
+    // key 자동 생성 — 영문/숫자 변환 (label에서 영문 추출 또는 timestamp)
+    const slug = label.toLowerCase().replace(/[^a-z0-9가-힣]/g, '').slice(0, 20);
+    const key = `cat_${Date.now().toString(36)}_${slug || 'x'}`.slice(0, 50);
+    const max = Math.max(1, Math.min(20, Number(maxSplit) || 10));
+    const order = Number(sortOrder) || 0;
+    const rec = await db.cardSalesCategories.create({ key, label, maxSplit: max, sortOrder: order });
+    console.log(`💳 분류 추가 — ${rec.label} (key=${rec.key}, max=${rec.maxSplit})`);
+    res.json({ success: true, data: rec });
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ success: false, error: '동일 키의 분류가 이미 존재합니다.' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/card-sales-categories/:id', async (req, res) => {
+  try {
+    await db.cardSalesCategories.delete(req.params.id);
+    console.log(`💳 분류 삭제 — ID ${req.params.id}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST /api/card-sales — 신규 등록 (누구나)
+// 단일 결제: { type, buyer, amount, catId, cardNumber, approvalNo, ... }
+// 분할결제: { type, buyer, businessUnit, registrantOrg, registrantName, date, cards: [{ catId, amount, cardNumber, approvalNo }, ...] }
 app.post('/api/card-sales', async (req, res) => {
   try {
     const b = req.body || {};
-    if (!b.type || (b.type !== 'dok_teacher' && b.type !== 'las_owner')) {
-      return res.status(400).json({ success: false, error: 'type은 dok_teacher 또는 las_owner여야 합니다.' });
+    if (!b.type) {
+      return res.status(400).json({ success: false, error: 'type(분류)은 필수입니다.' });
     }
-    if (!b.buyer || !b.amount) {
-      return res.status(400).json({ success: false, error: '구매자, 금액은 필수 항목입니다.' });
+    if (!b.buyer) {
+      return res.status(400).json({ success: false, error: '구매자는 필수 항목입니다.' });
     }
-    const content = b.type === 'dok_teacher' ? '독서지도사' : '점주보증금';
+    // 카테고리 조회 — DB 마스터 우선, 없으면 레거시 매핑 fallback
+    const cat = await db.cardSalesCategories.findByKey(b.type);
+    let content, maxCards;
+    if (cat) {
+      content = cat.label;
+      maxCards = cat.maxSplit;
+    } else if (b.type === 'dok_teacher') {
+      content = '독서지도사'; maxCards = 5;
+    } else if (b.type === 'las_owner') {
+      content = '점주보증금'; maxCards = 10;
+    } else {
+      return res.status(400).json({ success: false, error: `등록되지 않은 분류: ${b.type}` });
+    }
+    const date = b.date || new Date().toISOString().slice(0, 10);
+
+    // 분할결제 모드 — cards 배열
+    if (Array.isArray(b.cards) && b.cards.length > 0) {
+      if (b.cards.length > maxCards) {
+        return res.status(400).json({ success: false, error: `${content} 분할결제는 최대 ${maxCards}장입니다 (요청: ${b.cards.length}장).` });
+      }
+      const invalidIdx = b.cards.findIndex(c => !c || !c.amount);
+      if (invalidIdx >= 0) {
+        return res.status(400).json({ success: false, error: `${invalidIdx + 1}번째 카드의 금액이 없습니다.` });
+      }
+      // 그룹 UUID 생성
+      const crypto = require('crypto');
+      const groupId = crypto.randomUUID();
+      const created = [];
+      for (const c of b.cards) {
+        const rec = await db.cardSales.create({
+          type: b.type,
+          date,
+          catId: c.catId || null,
+          businessUnit: b.businessUnit || null,
+          buyer: b.buyer,
+          content,
+          amount: String(c.amount).replace(/[^0-9]/g, ''),
+          cardIssuer: c.cardIssuer || null,
+          cardNumber: c.cardNumber || null,
+          approvalNo: c.approvalNo || null,
+          registrantOrg: b.registrantOrg || null,
+          registrantName: b.registrantName || null,
+          transactionGroupId: groupId
+        });
+        created.push(rec);
+      }
+      console.log(`💳 분할결제 등록 (${content}, ${b.cards.length}장) — group ${groupId.slice(0,8)}, ${b.buyer}`);
+      return res.json({ success: true, data: created, groupId, count: created.length });
+    }
+
+    // 단일 결제 — 기존 로직
+    if (!b.amount) {
+      return res.status(400).json({ success: false, error: '금액은 필수 항목입니다.' });
+    }
     const record = await db.cardSales.create({
       type: b.type,
-      date: b.date || new Date().toISOString().slice(0, 10),
+      date,
       catId: b.catId || null,
       businessUnit: b.businessUnit || null,
       buyer: b.buyer,
-      content: content,
+      content,
       amount: String(b.amount).replace(/[^0-9]/g, ''),
+      cardIssuer: b.cardIssuer || null,
       cardNumber: b.cardNumber || null,
       approvalNo: b.approvalNo || null,
       registrantOrg: b.registrantOrg || null,
@@ -360,6 +514,40 @@ app.get('/api/card-sales', async (req, res) => {
   }
 });
 
+// PATCH /api/card-sales/:id — 구매자/담당자(소속/성명) 수정 (어드민 전용)
+app.patch('/api/card-sales/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ success: false, error: '유효하지 않은 id' });
+    const b = req.body || {};
+    const data = {};
+    if (typeof b.buyer === 'string') data.buyer = b.buyer;
+    if (typeof b.registrantOrg === 'string') data.registrantOrg = b.registrantOrg;
+    if (typeof b.registrantName === 'string') data.registrantName = b.registrantName;
+    if (Object.keys(data).length === 0) return res.status(400).json({ success: false, error: '수정할 항목이 없습니다.' });
+    const updated = await db.cardSales.update(id, data);
+    console.log(`💳 카드결제 수정 — ID ${id}: ${JSON.stringify(data)}`);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('카드결제 수정 실패:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/card-sales/:id — 삭제 (어드민 전용)
+app.delete('/api/card-sales/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ success: false, error: '유효하지 않은 id' });
+    await db.cardSales.delete(id);
+    console.log(`💳 카드결제 삭제 — ID ${id}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('카드결제 삭제 실패:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/card-sales/export — 필터 결과를 양식에 채워 엑셀 다운로드 (어드민 전용)
 app.get('/api/card-sales/export', async (req, res) => {
   try {
@@ -379,28 +567,21 @@ app.get('/api/card-sales/export', async (req, res) => {
     await wb.xlsx.readFile(CARD_TEMPLATE_PATH);
     const ws = wb.worksheets[0];
 
-    // 4행부터 데이터 채움 (양식의 4행에 미리 정의된 셀 스타일은 그대로 유지)
-    // 컬럼: A=번호, B=날짜, C=CAT ID, D=사업부, E=구매자, F=내용, G=금액, H=카드번호, I=승인번호, J=입력자
-    const DATA_FONT = { name: '맑은 고딕', size: 11, bold: false };
-    rows.forEach((r, i) => {
-      const rowNum = 4 + i;
-      const row = ws.getRow(rowNum);
+    // 4행부터 데이터 채움 — 양식의 행 스타일을 데이터 N개에 맞춰 동적 적용 (마지막 행에 medium bottom)
+    // 컬럼: A=번호, B=날짜, C=CAT ID, D=사업부, E=구매자(+분할표기), F=내용, G=금액, H=카드사, I=카드번호, J=승인번호, K=담당
+    const splitMap = buildSplitMap(rows);
+    fillSheetWithDynamicBorder(ws, rows, splitMap, 11, 4, 18, (row, r, i, sMap) => {
       row.getCell(1).value = i + 1;
       row.getCell(2).value = r.date || '';
       row.getCell(3).value = r.catId || '';
       row.getCell(4).value = r.businessUnit || '';
-      row.getCell(5).value = r.buyer || '';
+      row.getCell(5).value = (r.buyer || '') + getSplitLabel(r, sMap);
       row.getCell(6).value = r.content || '';
       row.getCell(7).value = r.amount ? Number(r.amount) : '';
-      row.getCell(8).value = r.cardNumber || '';
-      row.getCell(9).value = r.approvalNo || '';
-      // J(10) = 입력자 — "입력자소속/입력자성명" (사업부는 D컬럼에 별도 표시되므로 제외, 빈 값 제외)
-      row.getCell(10).value = [r.registrantOrg, r.registrantName].filter(Boolean).join('/');
-      // 모든 데이터 셀에 맑은 고딕 11pt Normal (bold 금지) 적용
-      for (let c = 1; c <= 10; c++) {
-        row.getCell(c).font = DATA_FONT;
-      }
-      row.commit();
+      row.getCell(8).value = r.cardIssuer || '';
+      row.getCell(9).value = r.cardNumber || '';
+      row.getCell(10).value = r.approvalNo || '';
+      row.getCell(11).value = [r.registrantOrg, r.registrantName].filter(Boolean).join('/');
     });
 
     const buf = await wb.xlsx.writeBuffer();
@@ -410,6 +591,139 @@ app.get('/api/card-sales/export', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (err) {
     console.error('카드결제 엑셀 다운로드 실패:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── 4.55 시스템 설정 (일일보고 수신 이메일) ────────────────────
+const DAILY_REPORT_EMAIL_KEY = 'daily_report_recipient_email';
+const DEFAULT_DAILY_REPORT_EMAIL = 'gospress.dckwak@gmail.com';
+
+app.get('/api/system/config/daily-report-email', async (req, res) => {
+  try {
+    const value = await db.config.get(DAILY_REPORT_EMAIL_KEY, DEFAULT_DAILY_REPORT_EMAIL);
+    res.json({ success: true, email: value });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.patch('/api/system/config/daily-report-email', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ success: false, error: '이메일 값이 필요합니다.' });
+    }
+    // 콤마(,) 또는 세미콜론(;)으로 구분된 다수 수신자 지원 — 각 항목이 이메일 형식이어야 함
+    const parts = email.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    if (parts.length === 0) {
+      return res.status(400).json({ success: false, error: '유효한 이메일이 없습니다.' });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalid = parts.filter(p => !emailRegex.test(p));
+    if (invalid.length > 0) {
+      return res.status(400).json({ success: false, error: `유효하지 않은 이메일: ${invalid.join(', ')}` });
+    }
+    // 정규화된 형식("a@x.com, b@y.com")으로 저장 — nodemailer가 그대로 다수 처리
+    const normalized = parts.join(', ');
+    await db.config.set(DAILY_REPORT_EMAIL_KEY, normalized);
+    console.log(`📧 일일보고 수신 이메일 변경 (${parts.length}명): ${normalized}`);
+    res.json({ success: true, email: normalized, recipientCount: parts.length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── 4.6 일일 카드결제 보고 자동 이메일 (Cloud Scheduler가 매일 22:00 KST에 호출) ───
+const nodemailer = require('nodemailer');
+
+// 전일 22:00 KST(13:00 UTC) ~ 당일 22:00 KST(13:00 UTC) 범위의 카드결제 로그 집계 후 이메일 발송
+app.post('/api/cron/daily-card-sales-report', async (req, res) => {
+  // Cloud Scheduler 헤더 검증
+  const cronSecret = process.env.CRON_SECRET;
+  const reqSecret = req.headers['x-cron-secret'];
+  if (!cronSecret || reqSecret !== cronSecret) {
+    return res.status(403).json({ success: false, error: 'forbidden' });
+  }
+
+  try {
+    // 시각 범위 산정 — query.from/query.to (ISO timestamp) 지정 시 우선, 미지정 시 자동 산정
+    // 자동 산정: 호출 시점 기준 직전 13:00 UTC(=22:00 KST)를 종료점으로 한 24시간 윈도우
+    let fromUtc, toUtc;
+    if (req.query.from && req.query.to) {
+      fromUtc = new Date(req.query.from);
+      toUtc = new Date(req.query.to);
+    } else {
+      const now = new Date();
+      toUtc = new Date(now);
+      toUtc.setUTCHours(13, 0, 0, 0);
+      if (toUtc > now) toUtc.setUTCDate(toUtc.getUTCDate() - 1);
+      fromUtc = new Date(toUtc);
+      fromUtc.setUTCDate(fromUtc.getUTCDate() - 1);
+    }
+
+    console.log(`📧 [Daily Report] 집계 범위 (createdAt UTC): ${fromUtc.toISOString()} ~ ${toUtc.toISOString()}`);
+
+    // DB 조회 — createdAt 기준
+    const rows = await db.cardSales.findMany({ from: null, to: null });
+    const filtered = rows.filter(r => {
+      const t = new Date(r.createdAt).getTime();
+      return t >= fromUtc.getTime() && t < toUtc.getTime();
+    });
+    console.log(`📧 [Daily Report] 대상 행 수: ${filtered.length}`);
+
+    // 엑셀 생성 (기존 양식 + 데이터 동적 외곽선 적용)
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(CARD_TEMPLATE_PATH);
+    const ws = wb.worksheets[0];
+    const splitMap = buildSplitMap(filtered);
+    fillSheetWithDynamicBorder(ws, filtered, splitMap, 11, 4, 18, (row, r, i, sMap) => {
+      row.getCell(1).value = i + 1;
+      row.getCell(2).value = r.date || '';
+      row.getCell(3).value = r.catId || '';
+      row.getCell(4).value = r.businessUnit || '';
+      row.getCell(5).value = (r.buyer || '') + getSplitLabel(r, sMap);
+      row.getCell(6).value = r.content || '';
+      row.getCell(7).value = r.amount ? Number(r.amount) : '';
+      row.getCell(8).value = r.cardIssuer || '';
+      row.getCell(9).value = r.cardNumber || '';
+      row.getCell(10).value = r.approvalNo || '';
+      row.getCell(11).value = [r.registrantOrg, r.registrantName].filter(Boolean).join('/');
+    });
+    const xlsxBuf = Buffer.from(await wb.xlsx.writeBuffer());
+
+    // KST 날짜 — 전일/금일 (시각 +9h 보정)
+    const fromKstDate = new Date(fromUtc.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const toKstDate = new Date(toUtc.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const filename = `카드매출_일일보고_${toKstDate}.xlsx`;
+
+    // 수신자 DB에서 로드 (없으면 기본값)
+    const recipient = await db.config.get(DAILY_REPORT_EMAIL_KEY, DEFAULT_DAILY_REPORT_EMAIL);
+
+    // 이메일 전송
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: 'zdevbro@gmail.com',
+        pass: process.env.GMAIL_APP_PASSWORD
+      }
+    });
+
+    const totalAmount = filtered.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    await transporter.sendMail({
+      from: '"에이멘에이 자동보고" <zdevbro@gmail.com>',
+      to: recipient,
+      subject: `[에이멘에이] 카드매출 일일보고 ${toKstDate}`,
+      text: `교육본부\n\n` +
+            `전일(${fromKstDate}) 오후 10:00 ~ 금일(${toKstDate}) 오후 10:00까지 카드매출 취합하여 송부합니다.`,
+      attachments: [{ filename, content: xlsxBuf }]
+    });
+
+    console.log(`📧 [Daily Report] 이메일 발송 완료 — 수신: ${recipient}, ${filtered.length}건, ${totalAmount.toLocaleString()}원`);
+    res.json({ success: true, range: { from: fromUtc, to: toUtc }, count: filtered.length, total: totalAmount, recipient });
+  } catch (err) {
+    console.error('📧 [Daily Report] 실패:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

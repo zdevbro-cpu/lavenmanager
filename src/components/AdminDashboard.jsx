@@ -262,7 +262,7 @@ export default function AdminDashboard() {
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 border border-border-color hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>배송사 포맷 엑셀 다운로드</span>
+            <span>엑셀 다운로드</span>
           </button>
           <button
             onClick={fetchApplications}

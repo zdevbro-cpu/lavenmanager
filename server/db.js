@@ -64,6 +64,43 @@ const db = {
     return await prisma.application.delete({ where: { id: Number(id) } });
   },
 
+  // ─── 카드결제 분류 마스터 ───────────────────────────────────
+  cardSalesCategories: {
+    findAll: async () => {
+      if (useMemoryDb) return [];
+      return await prisma.cardSalesCategory.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] });
+    },
+    create: async (data) => {
+      if (useMemoryDb) throw new Error('인메모리 모드에서는 사용할 수 없습니다.');
+      return await prisma.cardSalesCategory.create({ data });
+    },
+    delete: async (id) => {
+      if (useMemoryDb) throw new Error('인메모리 모드에서는 사용할 수 없습니다.');
+      return await prisma.cardSalesCategory.delete({ where: { id: Number(id) } });
+    },
+    findByKey: async (key) => {
+      if (useMemoryDb) return null;
+      return await prisma.cardSalesCategory.findUnique({ where: { key } });
+    }
+  },
+
+  // ─── 시스템 설정 (key-value) ────────────────────────────────
+  config: {
+    get: async (key, defaultValue = '') => {
+      if (useMemoryDb) return defaultValue;
+      const row = await prisma.systemConfig.findUnique({ where: { key } });
+      return row ? row.value : defaultValue;
+    },
+    set: async (key, value) => {
+      if (useMemoryDb) throw new Error('인메모리 모드에서는 설정을 저장할 수 없습니다.');
+      return await prisma.systemConfig.upsert({
+        where: { key },
+        update: { value },
+        create: { key, value }
+      });
+    }
+  },
+
   // ─── 카드결제 등록 로그 (CardSalesLog) ───────────────────────
   cardSales: {
     create: async (data) => {
@@ -84,7 +121,15 @@ const db = {
       if (filter.buyer) where.buyer = { contains: filter.buyer };
       if (filter.registrantOrg) where.registrantOrg = { contains: filter.registrantOrg };
       if (filter.registrantName) where.registrantName = { contains: filter.registrantName };
-      return await prisma.cardSalesLog.findMany({ where, orderBy: [{ date: 'asc' }, { id: 'asc' }] });
+      return await prisma.cardSalesLog.findMany({ where, orderBy: [{ date: 'desc' }, { id: 'desc' }] });
+    },
+    update: async (id, data) => {
+      if (useMemoryDb) throw new Error('인메모리 모드에서는 사용할 수 없습니다.');
+      return await prisma.cardSalesLog.update({ where: { id: Number(id) }, data });
+    },
+    delete: async (id) => {
+      if (useMemoryDb) throw new Error('인메모리 모드에서는 사용할 수 없습니다.');
+      return await prisma.cardSalesLog.delete({ where: { id: Number(id) } });
     }
   }
 };
