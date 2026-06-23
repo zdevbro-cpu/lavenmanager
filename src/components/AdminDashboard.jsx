@@ -34,8 +34,8 @@ export default function AdminDashboard() {
   // 드라이브 PDF 팝업 상태
   const [selectedDoc, setSelectedDoc] = useState(null);
 
-  // 상단 영역 토글: 'application' (기존 교재구매) | 'card-sales' (신규 카드결제 관리)
-  const [adminSection, setAdminSection] = useState('application');
+  // 상단 영역 토글: 'card-sales' (카드결제 관리 — 우선 표시) | 'application' (교재구매 신청)
+  const [adminSection, setAdminSection] = useState('card-sales');
 
   useEffect(() => {
     // 파이어베이스 인증 상태 수집
@@ -229,19 +229,19 @@ export default function AdminDashboard() {
   // 메인 대시보드 화면
   return (
     <div className="flex flex-col gap-5 w-full h-full overflow-y-auto no-scrollbar pb-8">
-      {/* 상단 영역 토글 — 교재구매 신청 관리 ↔ 카드결제 관리 */}
+      {/* 상단 영역 토글 — 카드결제 관리 ↔ 교재구매 신청 관리 */}
       <div className="flex gap-2 flex-shrink-0">
-        <button
-          onClick={() => setAdminSection('application')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${adminSection === 'application' ? 'bg-accent-indigo text-white' : 'bg-slate-800 text-text-secondary hover:bg-slate-700'}`}
-        >
-          📝 교재구매 신청 관리
-        </button>
         <button
           onClick={() => setAdminSection('card-sales')}
           className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${adminSection === 'card-sales' ? 'bg-accent-indigo text-white' : 'bg-slate-800 text-text-secondary hover:bg-slate-700'}`}
         >
           💳 카드결제 관리
+        </button>
+        <button
+          onClick={() => setAdminSection('application')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${adminSection === 'application' ? 'bg-accent-indigo text-white' : 'bg-slate-800 text-text-secondary hover:bg-slate-700'}`}
+        >
+          📝 교재구매 신청 관리
         </button>
         <div className="flex-1" />
         <button onClick={handleLogout} className="px-3 py-1.5 bg-slate-800 hover:bg-red-900 text-xs text-text-secondary hover:text-white rounded-lg">로그아웃</button>
