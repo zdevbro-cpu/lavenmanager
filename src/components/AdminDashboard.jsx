@@ -481,18 +481,20 @@ export default function AdminDashboard() {
                     </div>
                   ));
                 })()}
-                {selectedDoc.receiptOcrData?.cash && (
-                  <div className="bg-emerald-500/10 border border-emerald-500/40 p-3 rounded-xl text-xs space-y-1">
-                    <div className="text-emerald-400 font-bold text-[11px]">🧾 현금영수증 추출 정보</div>
-                    {selectedDoc.receiptOcrData.cash.merchantName && <div className="text-text-secondary">· 가맹점: <span className="text-white font-semibold">{selectedDoc.receiptOcrData.cash.merchantName}</span></div>}
-                    {selectedDoc.receiptOcrData.cash.merchantBizNo && <div className="text-text-secondary">· 사업자번호: <span className="text-white font-mono">{selectedDoc.receiptOcrData.cash.merchantBizNo}</span></div>}
-                    {selectedDoc.receiptOcrData.cash.amount && <div className="text-text-secondary">· 거래금액: <span className="text-amber-400 font-semibold">{Number(selectedDoc.receiptOcrData.cash.amount).toLocaleString()}원</span></div>}
-                    {selectedDoc.receiptOcrData.cash.approvalNo && <div className="text-text-secondary">· 승인번호: <span className="text-white font-mono">{selectedDoc.receiptOcrData.cash.approvalNo}</span></div>}
-                    {selectedDoc.receiptOcrData.cash.transactionDate && <div className="text-text-secondary">· 거래일시: <span className="text-white font-mono">{selectedDoc.receiptOcrData.cash.transactionDate}</span></div>}
-                    {selectedDoc.receiptOcrData.cash.identifierType && <div className="text-text-secondary">· 인증수단: <span className="text-white font-semibold">{selectedDoc.receiptOcrData.cash.identifierType}</span></div>}
-                    {selectedDoc.receiptOcrData.cash.identifierNo && <div className="text-text-secondary">· 인증번호: <span className="text-white font-mono">{selectedDoc.receiptOcrData.cash.identifierNo}</span></div>}
-                  </div>
-                )}
+                {selectedDoc.receiptOcrData?.cash && (() => {
+                  const cashes = Array.isArray(selectedDoc.receiptOcrData.cash)
+                    ? selectedDoc.receiptOcrData.cash
+                    : [selectedDoc.receiptOcrData.cash];
+                  return cashes.filter(Boolean).map((c, idx) => (
+                    <div key={idx} className="bg-emerald-500/10 border border-emerald-500/40 p-3 rounded-xl text-xs space-y-1">
+                      <div className="text-emerald-400 font-bold text-[11px]">🧾 현금 영수증 #{idx + 1} 추출 정보</div>
+                      {c.merchantName && <div className="text-text-secondary">· 가맹점: <span className="text-white font-semibold">{c.merchantName}</span></div>}
+                      {c.amount && <div className="text-text-secondary">· 거래금액: <span className="text-amber-400 font-semibold">{Number(c.amount).toLocaleString()}원</span></div>}
+                      {c.approvalNo && <div className="text-text-secondary">· 승인번호: <span className="text-white font-mono">{c.approvalNo}</span></div>}
+                      {c.identifierNo && <div className="text-text-secondary">· 인증번호: <span className="text-white font-mono">{c.identifierNo}</span></div>}
+                    </div>
+                  ));
+                })()}
                 <div className="flex gap-2 mt-2">
                   <a
                     href={selectedDoc.fileUrl}

@@ -394,11 +394,14 @@ export default function App() {
       </header>
 
       {/* 메인 내용 영역 — 모바일 mockup을 중앙 정렬. 모바일에선 body가 네이티브 스크롤되므로 overflow 풀어줌 */}
-      <main className="flex-1 flex justify-center items-start p-0 md:p-6 max-w-[1600px] mx-auto w-full md:h-[calc(100vh-70px)] md:overflow-hidden">
+      <main className={`flex-1 flex justify-center items-start p-0 max-w-[1600px] mx-auto w-full ${activeView === 'admin' ? 'md:p-6 md:h-[calc(100vh-70px)] md:overflow-y-auto' : 'md:p-6 md:h-[calc(100vh-70px)] md:overflow-hidden'}`}>
 
-        {/* 중앙 인터랙티브 뷰포트 스크린 영역 */}
-        <div className="screen-container">
-          
+        {/* 2. 관리자 데스크톱 대시보드 — screen-container 밖에서 풀너비 렌더링 */}
+        {activeView === 'admin' && <AdminDashboard />}
+
+        {/* 중앙 인터랙티브 뷰포트 스크린 영역 (신청자 모드) */}
+        {activeView !== 'admin' && <div className="screen-container">
+
           {/* 0. 랜딩 (분기 선택) */}
           {activeView === 'landing' && (
             <div className="mobile-mockup">
@@ -1008,9 +1011,7 @@ export default function App() {
             </div>
           )}
 
-          {/* 2. 관리자 데스크톱 대시보드 */}
-          {activeView === 'admin' && <AdminDashboard />}
-        </div>
+        </div>}
       </main>
     </div>
   );
