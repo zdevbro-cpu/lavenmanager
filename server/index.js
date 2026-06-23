@@ -104,11 +104,15 @@ app.post('/api/ocr', upload.single('photo'), async (req, res) => {
 // 3. 교재구매 신청 완료 제출 API (전자서명 합성 ➔ PDF 생성 ➔ 구글드라이브 업로드 ➔ DB 저장)
 app.post('/api/applications', async (req, res) => {
   try {
-    const { formData, signatureData, photoData, receiptPhotoData, receiptPhotoDataList, cashReceiptPhotoData, receiptOcrData } = req.body;
+    const { formData, signatureData, photoData, receiptPhotoData, receiptPhotoDataList, cashReceiptPhotoData, cashReceiptPhotoDataList, receiptOcrData } = req.body;
     // 신·구 페이로드 호환: receiptPhotoDataList(배열) > receiptPhotoData(단일)
     const cardReceiptList = Array.isArray(receiptPhotoDataList) && receiptPhotoDataList.length > 0
       ? receiptPhotoDataList
       : (receiptPhotoData ? [receiptPhotoData] : []);
+    // 현금영수증 배열 처리: cashReceiptPhotoDataList(배열) > cashReceiptPhotoData(단일 구버전 호환)
+    const cashReceiptList = Array.isArray(cashReceiptPhotoDataList) && cashReceiptPhotoDataList.length > 0
+      ? cashReceiptPhotoDataList
+      : (cashReceiptPhotoData ? [cashReceiptPhotoData] : []);
 
     if (!formData || !formData.buyerName || !formData.phoneNumber || !formData.address) {
       return res.status(400).json({ error: '기본 구매자명, 연락처, 주소 정보는 필수로 채워야 합니다.' });
@@ -119,21 +123,21 @@ app.post('/api/applications', async (req, res) => {
 
     console.log(`📝 신청서 접수 프로세스 시작. 구매자명: ${formData.buyerName}`);
 
-    // 원본 사진, 카드 영수증 N장(최대 3), 현금영수증 이미지 버퍼 변환
+    // 원본 사진, 카드 영수증 N장(최대 6), 현금영수증 N장(최대 6) 이미지 버퍼 변환
     const photoBuffer = decodeBase64Image(photoData);
     const cardReceiptBuffers = cardReceiptList.map(decodeBase64Image).filter(Boolean);
-    const cashReceiptBuffer = decodeBase64Image(cashReceiptPhotoData);
+    const cashReceiptBuffers = cashReceiptList.map(decodeBase64Image).filter(Boolean);
 
     // 3.1 pdf-lib 모듈을 사용하여 A5 신청서 PDF 생성 (서명 + 카드결제정보 합성) — 회사용 / 고객용
     const applicationPdfBuffer = await pdfService.generateApplicationPdf(formData, signatureData, receiptOcrData, 'company');
     const customerPdfBuffer    = await pdfService.generateApplicationPdf(formData, signatureData, receiptOcrData, 'customer');
 
-    // 3.1.5 신청서 + 원본사진 + 카드영수증 N장 + 현금영수증 + 라벤 약정서 자동 채움까지 단일 PDF
+    // 3.1.5 신청서 + 원본사진 + 카드영수증 N장 + 현금영수증 N장 + 라벤 약정서 자동 채움까지 단일 PDF
     const bundledPdfBuffer = await pdfService.buildBundledPdf(
       applicationPdfBuffer,
       photoBuffer,
       cardReceiptBuffers,
-      cashReceiptBuffer,
+      cashReceiptBuffers,
       formData,
       receiptOcrData
     );

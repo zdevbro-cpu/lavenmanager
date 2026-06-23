@@ -55,15 +55,13 @@ export default function App() {
 
   const [signatureData, setSignatureData] = useState(null);
   
-  // 카드 영수증 상태 — 최대 3개 슬롯 (기본 1개부터 시작, + 버튼으로 추가)
-  const MAX_CARD_RECEIPTS = 3;
+  // 카드 영수증 상태 — 최대 6개 슬롯 (기본 1개부터 시작, + 버튼으로 추가)
+  const MAX_CARD_RECEIPTS = 6;
   const [cardReceipts, setCardReceipts] = useState([{ url: '', file: null, ocrData: null, loading: false }]);
 
-  // 현금 영수증 상태 추가
-  const [cashReceiptPhotoUrl, setCashReceiptPhotoUrl] = useState('');
-  const [cashReceiptPhotoFile, setCashReceiptPhotoFile] = useState(null);
-  const [isCashReceiptOcrLoading, setIsCashReceiptOcrLoading] = useState(false);
-  const [cashReceiptOcrData, setCashReceiptOcrData] = useState(null); // 현금영수증 추출 정보 표시용
+  // 현금 영수증 상태 — 최대 6개 슬롯 (카드영수증과 동일 구조)
+  const MAX_CASH_RECEIPTS = 6;
+  const [cashReceipts, setCashReceipts] = useState([{ url: '', file: null, ocrData: null, loading: false }]);
   
   // OCR 파싱으로 채워진 필드들의 하이라이트 처리를 위한 상태
   const [ocrFilledFields, setOcrFilledFields] = useState([]);
@@ -123,6 +121,13 @@ export default function App() {
     if (total > 0) setOcrFilledFields(prev => [...new Set([...prev, 'cardPayment'])]);
   };
 
+  // 현금 영수증 배열 합계 → cashPayment 필드 동기화
+  const syncCashPaymentTotal = (receipts) => {
+    const total = receipts.reduce((acc, r) => acc + (Number(r.ocrData?.amount) || 0), 0);
+    setFormData(prev => ({ ...prev, cashPayment: total ? String(total) : '' }));
+    if (total > 0) setOcrFilledFields(prev => [...new Set([...prev, 'cashPayment'])]);
+  };
+
   // 카드영수증 슬롯 업데이트
   const updateCardReceipt = (idx, patch) => {
     setCardReceipts(prev => {
@@ -144,6 +149,31 @@ export default function App() {
         ? [{ url: '', file: null, ocrData: null, loading: false }] // 마지막 1개는 비우기만 함
         : prev.filter((_, i) => i !== idx);
       syncCardPaymentTotal(next);
+      return next;
+    });
+  };
+
+  // 현금영수증 슬롯 업데이트
+  const updateCashReceipt = (idx, patch) => {
+    setCashReceipts(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+  };
+
+  // 현금영수증 슬롯 추가 (+ 버튼)
+  const addCashReceiptSlot = () => {
+    setCashReceipts(prev => prev.length >= MAX_CASH_RECEIPTS ? prev : [...prev, { url: '', file: null, ocrData: null, loading: false }]);
+  };
+
+  // 현금영수증 슬롯 삭제 (× 버튼)
+  const removeCashReceiptSlot = (idx) => {
+    setCashReceipts(prev => {
+      const next = prev.length === 1
+        ? [{ url: '', file: null, ocrData: null, loading: false }]
+        : prev.filter((_, i) => i !== idx);
+      syncCashPaymentTotal(next);
       return next;
     });
   };
@@ -184,52 +214,44 @@ export default function App() {
     }
   };
 
-  // 1.3 현금 영수증 OCR 파싱 API 연동
-  const handleCashReceiptOcrProcess = async (file) => {
+  // 1.3 현금 영수증 OCR 파싱 API 연동 (인덱스 기반 — 최대 6개 슬롯 지원)
+  const handleCashReceiptOcrProcess = async (idx, file) => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => setCashReceiptPhotoUrl(e.target.result);
+    reader.onload = (e) => updateCashReceipt(idx, { url: e.target.result, file });
     reader.readAsDataURL(file);
-    setCashReceiptPhotoFile(file);
-
-    setIsCashReceiptOcrLoading(true);
+    updateCashReceipt(idx, { loading: true, file });
 
     const uploadData = new FormData();
     uploadData.append('photo', file);
     uploadData.append('type', 'cash_receipt');
 
     try {
-      console.log("🧾 현금 영수증 OCR 분석 요청 중...");
-      const response = await fetch(`${API_BASE}/api/ocr`, {
-        method: 'POST',
-        body: uploadData
-      });
+      console.log(`🧾 현금 영수증[${idx + 1}] OCR 분석 요청 중...`);
+      const response = await fetch(`${API_BASE}/api/ocr`, { method: 'POST', body: uploadData });
       const json = await response.json();
 
       if (json.success && json.data) {
-        console.log("🧾 현금 영수증 OCR 분석 성공:", json.data);
-        const amount = json.data.amount || '';
-        const identifierNo = json.data.identifierNo || '';
-
-        // 현금결제액 + 현금영수증 증빙번호 자동 입력
-        setFormData(prev => ({
-          ...prev,
-          cashPayment: amount || prev.cashPayment,
-          cashReceiptNo: identifierNo || prev.cashReceiptNo
-        }));
-
-        const filled = [];
-        if (amount) filled.push('cashPayment');
-        if (identifierNo) filled.push('cashReceiptNo');
-        setOcrFilledFields(prev => [...new Set([...prev, ...filled])]);
-        setCashReceiptOcrData(json.data);
+        console.log(`🧾 현금 영수증[${idx + 1}] OCR 분석 성공:`, json.data);
+        setCashReceipts(prev => {
+          const next = [...prev];
+          next[idx] = { ...next[idx], ocrData: json.data, loading: false };
+          syncCashPaymentTotal(next);
+          return next;
+        });
+        // 첫 번째 영수증에서만 증빙번호 자동 입력
+        if (idx === 0 && json.data.identifierNo) {
+          setFormData(prev => ({ ...prev, cashReceiptNo: json.data.identifierNo || prev.cashReceiptNo }));
+          setOcrFilledFields(prev => [...new Set([...prev, 'cashReceiptNo'])]);
+        }
+      } else {
+        updateCashReceipt(idx, { loading: false });
       }
     } catch (err) {
       console.error("현금 영수증 OCR 분석 실패:", err);
       alert("현금영수증 OCR 분석 실패. 일반 사진으로 첨부합니다.");
-    } finally {
-      setIsCashReceiptOcrLoading(false);
+      updateCashReceipt(idx, { loading: false });
     }
   };
 
@@ -239,10 +261,7 @@ export default function App() {
     setUploadedPhotoUrl('');
     setUploadedPhotoFile(null);
     setCardReceipts([{ url: '', file: null, ocrData: null, loading: false }]);
-    setCashReceiptPhotoUrl('');
-    setCashReceiptPhotoFile(null);
-    setIsCashReceiptOcrLoading(false);
-    setCashReceiptOcrData(null);
+    setCashReceipts([{ url: '', file: null, ocrData: null, loading: false }]);
     setOcrFilledFields([]);
     
     // 입력값 모두 초기화
@@ -313,10 +332,10 @@ export default function App() {
           photoData: uploadedPhotoUrl, // 신청서 원본 이미지 (base64)
           // 카드영수증을 배열로 전송 (이미지 + OCR 데이터 분리하여 백엔드 PDF 번들에서 차례로 추가)
           receiptPhotoDataList: cardReceipts.filter(r => r.url).map(r => r.url),
-          cashReceiptPhotoData: cashReceiptPhotoUrl, // 현금 영수증 이미지(base64)
+          cashReceiptPhotoDataList: cashReceipts.filter(r => r.url).map(r => r.url),
           receiptOcrData: {
             card: cardReceipts.map(r => r.ocrData).filter(Boolean),
-            cash: cashReceiptOcrData
+            cash: cashReceipts.map(r => r.ocrData).filter(Boolean)
           }
         })
       });
@@ -788,63 +807,71 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* 현금 영수증 사진 첨부 레이아웃 */}
+                      {/* 현금 영수증 사진 첨부 — 최대 6개 슬롯 */}
                       <div className="form-group">
-                        <label className="form-label">
-                          🧾 현금 영수증 사진 첨부
-                          {(ocrFilledFields.includes('cashPayment') || ocrFilledFields.includes('cashReceiptNo')) && <span className="ocr-badge block">OCR</span>}
-                        </label>
-                        <div
-                          onClick={() => !cashReceiptPhotoUrl && !isCashReceiptOcrLoading && document.getElementById('cashReceiptFile').click()}
-                          className="upload-box py-3 border-dashed border border-border-color bg-bg-secondary/30 rounded-lg text-center cursor-pointer hover:border-accent-indigo transition-all relative overflow-hidden"
-                        >
-                          {!cashReceiptPhotoUrl ? (
-                            <div className="text-[10px] text-text-secondary flex flex-col items-center justify-center gap-1">
-                              <span className="text-base">📸</span>
-                              <span>현금 영수증 사진 촬영/첨부</span>
-                            </div>
-                          ) : (
-                            <div className="relative h-20 w-full rounded overflow-hidden flex items-center justify-center bg-black/20">
-                              <img src={cashReceiptPhotoUrl} alt="현금영수증" className="w-full h-full object-contain" />
-                              {isCashReceiptOcrLoading && <div className="ocr-scanner-line block"></div>}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCashReceiptPhotoUrl('');
-                                  setCashReceiptPhotoFile(null);
-                                  setCashReceiptOcrData(null);
-                                  setOcrFilledFields(prev => prev.filter(f => f !== 'cashPayment' && f !== 'cashReceiptNo'));
-                                }}
-                                className="absolute top-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs border border-border-color z-10"
-                              >
-                                ×
-                              </button>
-                            </div>
+                        <label className="form-label flex items-center justify-between">
+                          <span>
+                            🧾 현금 영수증 사진 첨부 ({cashReceipts.length}/{MAX_CASH_RECEIPTS})
+                            {(ocrFilledFields.includes('cashPayment') || ocrFilledFields.includes('cashReceiptNo')) && <span className="ocr-badge block ml-1">OCR</span>}
+                          </span>
+                          {cashReceipts.length < MAX_CASH_RECEIPTS && (
+                            <button
+                              type="button"
+                              onClick={addCashReceiptSlot}
+                              className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30"
+                            >
+                              + 영수증 추가
+                            </button>
                           )}
-                          <input
-                            type="file"
-                            id="cashReceiptFile"
-                            className="hidden"
-                            accept="image/*"
-                        capture="environment"
-                            onChange={(e) => handleCashReceiptOcrProcess(e.target.files[0])}
-                          />
-                        </div>
-                        {cashReceiptOcrData && (
-                          <div className="mt-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/40 text-[10px] space-y-1">
-                            <div className="text-emerald-400 font-bold text-[11px] flex items-center gap-1">
-                              <Sparkles className="w-3 h-3" />
-                              <span>현금영수증 추출 정보</span>
+                        </label>
+                        <div className="flex flex-col gap-2">
+                          {cashReceipts.map((rcpt, idx) => (
+                            <div key={idx}>
+                              <div
+                                onClick={() => !rcpt.url && !rcpt.loading && document.getElementById(`cashReceiptFile_${idx}`).click()}
+                                className="upload-box py-3 border-dashed border border-border-color bg-bg-secondary/30 rounded-lg text-center cursor-pointer hover:border-emerald-500 transition-all relative overflow-hidden"
+                              >
+                                {!rcpt.url ? (
+                                  <div className="text-[10px] text-text-secondary flex flex-col items-center justify-center gap-1">
+                                    <span className="text-base">📸</span>
+                                    <span>현금 영수증 #{idx + 1} 사진 촬영/첨부</span>
+                                  </div>
+                                ) : (
+                                  <div className="relative h-20 w-full rounded overflow-hidden flex items-center justify-center bg-black/20">
+                                    <img src={rcpt.url} alt={`현금영수증${idx + 1}`} className="w-full h-full object-contain" />
+                                    {rcpt.loading && <div className="ocr-scanner-line block"></div>}
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); removeCashReceiptSlot(idx); }}
+                                      className="absolute top-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs border border-border-color z-10"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                )}
+                                <input
+                                  type="file"
+                                  id={`cashReceiptFile_${idx}`}
+                                  className="hidden"
+                                  accept="image/*"
+                                  capture="environment"
+                                  onChange={(e) => handleCashReceiptOcrProcess(idx, e.target.files[0])}
+                                />
+                              </div>
+                              {rcpt.ocrData && (
+                                <div className="mt-1.5 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/40 text-[10px] space-y-0.5">
+                                  <div className="text-emerald-400 font-bold text-[11px] flex items-center gap-1">
+                                    <Sparkles className="w-3 h-3" />
+                                    <span>현금 영수증 #{idx + 1} 추출 정보</span>
+                                  </div>
+                                  {rcpt.ocrData.merchantName && <div className="text-text-secondary">· 가맹점: <span className="text-white font-semibold">{rcpt.ocrData.merchantName}</span></div>}
+                                  {rcpt.ocrData.amount && <div className="text-text-secondary">· 거래금액: <span className="text-amber-400 font-semibold">{formatPrice(rcpt.ocrData.amount)}원</span></div>}
+                                  {rcpt.ocrData.approvalNo && <div className="text-text-secondary">· 승인번호: <span className="text-white font-mono">{rcpt.ocrData.approvalNo}</span></div>}
+                                  {rcpt.ocrData.identifierNo && <div className="text-text-secondary">· 인증번호: <span className="text-white font-mono">{rcpt.ocrData.identifierNo}</span></div>}
+                                </div>
+                              )}
                             </div>
-                            {cashReceiptOcrData.merchantName && <div className="text-text-secondary">· 가맹점: <span className="text-white font-semibold">{cashReceiptOcrData.merchantName}</span></div>}
-                            {cashReceiptOcrData.merchantBizNo && <div className="text-text-secondary">· 사업자번호: <span className="text-white font-mono">{cashReceiptOcrData.merchantBizNo}</span></div>}
-                            {cashReceiptOcrData.amount && <div className="text-text-secondary">· 거래금액: <span className="text-amber-400 font-semibold">{formatPrice(cashReceiptOcrData.amount)}원</span></div>}
-                            {cashReceiptOcrData.approvalNo && <div className="text-text-secondary">· 승인번호: <span className="text-white font-mono">{cashReceiptOcrData.approvalNo}</span></div>}
-                            {cashReceiptOcrData.transactionDate && <div className="text-text-secondary">· 거래일시: <span className="text-white font-mono">{cashReceiptOcrData.transactionDate}</span></div>}
-                            {cashReceiptOcrData.identifierType && <div className="text-text-secondary">· 인증수단: <span className="text-white font-semibold">{cashReceiptOcrData.identifierType}</span></div>}
-                            {cashReceiptOcrData.identifierNo && <div className="text-text-secondary">· 인증번호: <span className="text-white font-mono">{cashReceiptOcrData.identifierNo}</span></div>}
-                          </div>
-                        )}
+                          ))}
+                        </div>
                       </div>
 
                       <div className="form-group">

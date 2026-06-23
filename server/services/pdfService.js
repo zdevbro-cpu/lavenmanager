@@ -319,90 +319,57 @@ const pdfService = {
     return Buffer.from(pdfBytes);
   },
 
-  // 통합 PDF: 1쪽 A4 가로(신청서 + 영수증 2x2), 2쪽 A4 세로(라벤 구독회원 약정서 자동 채움)
-  // 2x2 슬롯 배치 (좌측: 수기신청서/현금, 우측 컬럼: 카드 영수증)
-  //   TL = 수기 신청서   TR = 카드 영수증 #1
-  //   BL = 현금/카드#3    BR = 카드 영수증 #2
-  // 수기신청서 없을 시 좌측은 [카드1, 카드2] 폴백, 우측은 [카드3, 현금] 폴백
-  buildBundledPdf: async (applicationPdfBuffer, photoBuffer = null, cardReceiptBuffers = null, cashReceiptBuffer = null, formData = null, receiptOcrData = null) => {
+  // 통합 PDF
+  // 1페이지 A4 가로: 좌A5=회원가입신청서(생성), 우A5=수기신청서 사진
+  // 2페이지 A4 가로: 좌A5=카드영수증 2×3 그리드(6슬롯), 우A5=현금영수증 2×3 그리드(6슬롯)
+  // 3페이지 A4 세로: 라벤 구독회원 약정서 (구독 상품 입력 시에만)
+  buildBundledPdf: async (applicationPdfBuffer, photoBuffer = null, cardReceiptBuffers = [], cashReceiptBuffers = [], formData = null, receiptOcrData = null) => {
     const finalDoc = await PDFDocument.create();
     finalDoc.registerFontkit(fontkit);
     const titleFont = await loadKoreanFont(finalDoc);
 
-    // A4 landscape: 841.89 × 595.28 — A5 portrait(419.53 × 595.28)가 정확히 좌측 절반에 들어맞음
-    const page = finalDoc.addPage([A4_H, A4_W]);
-    const { width: pw, height: ph } = page.getSize();
-    const halfW = pw / 2;
+    // A4 landscape: 841.89 × 595.28
+    const PW = A4_H; // 841.89
+    const PH = A4_W; // 595.28
+    const halfW = PW / 2; // ~420.945
 
-    // ── 좌측: 기존 A5 신청서 그대로 임베드 (스케일 1.0, 가로 절반 정확히 채움) ──
+    // ── 1페이지: 좌A5=회원가입신청서, 우A5=수기신청서 ──
+    const page1 = finalDoc.addPage([PW, PH]);
     const [formPage] = await finalDoc.embedPdf(applicationPdfBuffer, [0]);
-    const xScale = halfW / A5_W; // ≈ 1.0034 (소수점 보정)
-    const yScale = ph / A5_H;
-    page.drawPage(formPage, { x: 0, y: 0, xScale, yScale });
+    page1.drawPage(formPage, { x: 0, y: 0, xScale: halfW / A5_W, yScale: PH / A5_H });
 
-    // 좌·우 구분선
-    page.drawLine({
-      start: { x: halfW, y: 0 },
-      end: { x: halfW, y: ph },
-      thickness: 1,
-      color: rgb(0.15, 0.18, 0.22)
-    });
+    page1.drawLine({ start: { x: halfW, y: 0 }, end: { x: halfW, y: PH }, thickness: 1, color: rgb(0.15, 0.18, 0.22) });
 
-    // ── 우측: 4슬롯 2x2 — 카드는 우측 컬럼, 수기/현금은 좌측 컬럼 ──
-    // 슬롯 순서: [TL, TR, BL, BR]
-    const cardArr = Array.isArray(cardReceiptBuffers) ? cardReceiptBuffers.filter(Boolean) : [];
-    let slots;
+    const M = 10;
+    const lblH = 16;
+    const rightX = halfW + M;
+    const rightW = halfW - M * 2;
+    const rightH = PH - M * 2;
+
+    page1.drawRectangle({ x: rightX, y: PH - M - lblH, width: rightW, height: lblH, color: rgb(0.92, 0.93, 0.96), borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 1 });
+    page1.drawText('수기 신청서 원본', { x: rightX + 5, y: PH - M - lblH + 4, size: 9, font: titleFont, color: rgb(0.1, 0.15, 0.3) });
+
+    const imgAreaH = rightH - lblH - 2;
+    page1.drawRectangle({ x: rightX, y: M, width: rightW, height: imgAreaH, borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 1 });
+
     if (photoBuffer) {
-      // 수기신청서 있음: TL=수기, TR=카드1, BL=현금(또는 카드3), BR=카드2
-      const blBuf = cashReceiptBuffer || cardArr[2] || null;
-      const blLabel = cashReceiptBuffer ? '현금 영수증' : (cardArr[2] ? '카드 영수증 #3' : '현금 영수증');
-      slots = [
-        { label: '수기 신청서',    buf: photoBuffer },
-        { label: '카드 영수증 #1', buf: cardArr[0] || null },
-        { label: blLabel,          buf: blBuf },
-        { label: '카드 영수증 #2', buf: cardArr[1] || null }
-      ];
+      const img = await embedAuto(finalDoc, photoBuffer);
+      drawImageFitted(page1, img, rightX + 2, M + 2, rightW - 4, imgAreaH - 4);
     } else {
-      // 수기신청서 없음: TL=현금, TR=카드1, BL=카드3(없으면 빈칸), BR=카드2
-      slots = [
-        { label: '현금 영수증',    buf: cashReceiptBuffer || null },
-        { label: '카드 영수증 #1', buf: cardArr[0] || null },
-        { label: '카드 영수증 #3', buf: cardArr[2] || null },
-        { label: '카드 영수증 #2', buf: cardArr[1] || null }
-      ];
+      page1.drawText('(미첨부)', { x: rightX + rightW / 2 - 18, y: M + imgAreaH / 2 - 4, size: 9, font: titleFont, color: rgb(0.65, 0.65, 0.7) });
     }
 
-    const margin = 12;
-    const cellGap = 8;
-    const cellW = (halfW - margin * 2 - cellGap) / 2;
-    const cellH = (ph - margin * 2 - cellGap) / 2;
-    const cellLabelH = 14;
+    // ── 2페이지: 좌A5=카드영수증 2×3, 우A5=현금영수증 2×3 ──
+    const cardArr = Array.isArray(cardReceiptBuffers) ? cardReceiptBuffers.filter(Boolean) : [];
+    const cashArr = Array.isArray(cashReceiptBuffers) ? cashReceiptBuffers.filter(Boolean) : [];
 
-    for (let i = 0; i < 4; i++) {
-      const col = i % 2;
-      const row = Math.floor(i / 2);
-      const x = halfW + margin + col * (cellW + cellGap);
-      const y = margin + (1 - row) * (cellH + cellGap);
-      const slot = slots[i];
+    const page2 = finalDoc.addPage([PW, PH]);
+    page2.drawLine({ start: { x: halfW, y: 0 }, end: { x: halfW, y: PH }, thickness: 1, color: rgb(0.15, 0.18, 0.22) });
 
-      // 상단 라벨
-      page.drawRectangle({ x, y: y + cellH - cellLabelH, width: cellW, height: cellLabelH, color: rgb(0.94, 0.95, 0.97), borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 1 });
-      page.drawText(slot.label, { x: x + 5, y: y + cellH - cellLabelH + 4, size: 8, font: titleFont, color: rgb(0.1, 0.15, 0.3) });
+    await drawReceiptGrid(finalDoc, page2, titleFont, 0, halfW, PH, cardArr, '카드 영수증');
+    await drawReceiptGrid(finalDoc, page2, titleFont, halfW, halfW, PH, cashArr, '현금 영수증');
 
-      // 이미지 영역
-      const imgY = y;
-      const imgH = cellH - cellLabelH;
-      page.drawRectangle({ x, y: imgY, width: cellW, height: imgH, borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 1 });
-
-      if (slot.buf) {
-        const img = await embedAuto(finalDoc, slot.buf);
-        drawImageFitted(page, img, x + 2, imgY + 2, cellW - 4, imgH - 4); // 90° CW 회전 적용됨
-      } else {
-        page.drawText('(미첨부)', { x: x + cellW / 2 - 18, y: imgY + imgH / 2 - 4, size: 9, font: titleFont, color: rgb(0.65, 0.65, 0.7) });
-      }
-    }
-
-    // ── 2쪽: 라벤 구독회원 약정서 — 구독회원 상품 입력된 경우에만 첨부 ──
+    // ── 3페이지: 라벤 구독회원 약정서 (구독 상품 입력 시에만) ──
     const hasSubscription = !!(formData && String(formData.subscriptionType || '').trim());
     if (hasSubscription) {
       await appendAgreementPage(finalDoc, formData, receiptOcrData, titleFont);
@@ -414,6 +381,76 @@ const pdfService = {
     return Buffer.from(bytes);
   }
 };
+
+// 영수증 2×3 그리드 — A5 절반 영역에 6슬롯 배치
+// startX: 그리드 시작 x좌표, areaW: 그리드 너비, pageH: 페이지 높이
+async function drawReceiptGrid(finalDoc, page, font, startX, areaW, pageH, buffers, sectionLabel) {
+  const COLS = 2;
+  const ROWS = 3;
+  const MAX_SLOTS = COLS * ROWS; // 6
+  const M = 10;       // 외곽 마진
+  const GAP_X = 5;    // 열 간격
+  const GAP_Y = 5;    // 행 간격
+  const HDR_H = 18;   // 섹션 헤더 높이
+  const LBL_H = 13;   // 셀 라벨 높이
+
+  const gridW = areaW - M * 2;
+  const gridH = pageH - M * 2 - HDR_H - GAP_Y;
+  const cellW = (gridW - GAP_X * (COLS - 1)) / COLS;
+  const cellH = (gridH - GAP_Y * (ROWS - 1)) / ROWS;
+  const imgH = cellH - LBL_H;
+
+  // 섹션 헤더
+  page.drawRectangle({
+    x: startX + M, y: pageH - M - HDR_H,
+    width: gridW, height: HDR_H,
+    color: rgb(0.18, 0.22, 0.38),
+    borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 1
+  });
+  page.drawText(sectionLabel + ' (최대 6장)', {
+    x: startX + M + 6, y: pageH - M - HDR_H + 5,
+    size: 9, font, color: rgb(1, 1, 1)
+  });
+
+  const gridTop = pageH - M - HDR_H - GAP_Y;
+
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    const col = i % COLS;
+    const row = Math.floor(i / COLS);
+    const x = startX + M + col * (cellW + GAP_X);
+    const cellBottom = gridTop - (row + 1) * cellH - row * GAP_Y;
+
+    // 셀 라벨
+    page.drawRectangle({
+      x, y: cellBottom + imgH,
+      width: cellW, height: LBL_H,
+      color: rgb(0.92, 0.93, 0.96),
+      borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 0.8
+    });
+    page.drawText(`${sectionLabel} #${i + 1}`, {
+      x: x + 4, y: cellBottom + imgH + 4,
+      size: 7, font, color: rgb(0.1, 0.15, 0.3)
+    });
+
+    // 이미지 영역
+    page.drawRectangle({
+      x, y: cellBottom,
+      width: cellW, height: imgH,
+      borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 0.8
+    });
+
+    const buf = buffers[i] || null;
+    if (buf) {
+      const img = await embedAuto(finalDoc, buf);
+      drawImageFitted(page, img, x + 2, cellBottom + 2, cellW - 4, imgH - 4);
+    } else {
+      page.drawText('(미첨부)', {
+        x: x + cellW / 2 - 16, y: cellBottom + imgH / 2 - 4,
+        size: 8, font, color: rgb(0.65, 0.65, 0.7)
+      });
+    }
+  }
+}
 
 // 라벤 구독회원 약정서 페이지 추가 — pdf-lib로 직접 작성, 데이터 채움, 무채색
 async function appendAgreementPage(finalDoc, formData, receiptOcrData, font) {
